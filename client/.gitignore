@@ -1,0 +1,240 @@
+# =============================
+# Dependencies
+# =========================
+node_modules/
+jspm_packages/
+.pnp
+.pnp.js
+
+# =========================
+# Logs
+# =========================
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# =========================
+# Runtime data
+# =========================
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# =========================
+# Environment variables
+# =========================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+
+# =========================
+# Next.js
+# =========================
+.next/
+out/
+.vercel/
+.next-cache/
+*.tsbuildinfo
+
+# =========================
+# React / Build folders
+# =========================
+build/
+dist/
+coverage/
+
+# =========================
+# Express uploads/temp
+# =========================
+uploads/
+tmp/
+temp/
+
+# =========================
+# MongoDB
+# =========================
+data/
+*.mongodb
+mongodb-data/
+
+# =========================
+# Cache files
+# =========================
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+.sass-cache/
+
+# =========================
+# Package Managers
+# =========================
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Uncomment below if you WANT lock files committed
+#!package-lock.json
+#!yarn.lock
+#!pnpm-lock.yaml
+
+# =========================
+# TypeScript
+# =========================
+*.tsbuildinfo
+
+# =========================
+# Testing
+# =========================
+coverage/
+.nyc_output/
+
+# =========================
+# Docker
+# =========================
+.dockerignore
+
+# =========================
+# IDE / Editors
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Mac system files
+# =========================
+.AppleDouble
+.LSOverride
+
+# =========================
+# Linux files
+# =========================
+*~
+
+# =========================
+# Misc
+# =========================
+*.pem
+*.crt
+*.key
+
+# =========================
+# Firebase
+# =========================
+.firebase/
+firebase-debug.log
+
+# =========================
+# AWS / Serverless
+# =========================
+.serverless/
+
+# =========================
+# TurboRepo
+# =========================
+.turbo/
+
+# =========================
+# Storybook
+# =========================
+storybook-static/
+
+# =========================
+# Cypress
+# =========================
+cypress/videos/
+cypress/screenshots/
+
+# =========================
+# Local databases
+# =========================
+*.sqlite
+*.sqlite3
+
+# =========================
+# Generated files
+# =========================
+*.tgz
+*.zip
+
+# =========================
+# Optional:
+# Ignore public generated assets
+# =========================
+public/uploads/
+public/temp/
+
+# =========================
+# PM2
+# =========================
+.pm2/
+
+# =========================
+# Sass
+# =========================
+.sass-cache/
+
+# =========================
+# Jest
+# =========================
+jest-cache/
+
+# =========================
+# ESLint
+# =========================
+.eslintcache
+
+# =========================
+# Bun
+# =========================
+.bun/
+
+# =========================
+# Netlify
+# =========================
+.netlify/
+
+# =========================
+# Railway
+# =========================
+.railway/
+
+# =========================
+# Prisma
+# =========================
+prisma/dev.db
+prisma/dev.db-journal
+
+# =========================
+# Generated API docs
+# =========================
+docs/
+
+# =========================
+# Local SSL certificates
+# =========================
+certs/
+
+# =========================
+# Editor config backups
+# =========================
+*.bak
+*.tmp
+*.temp
