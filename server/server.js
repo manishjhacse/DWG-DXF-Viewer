@@ -1,3 +1,18 @@
+// Process-level error handlers to prevent server crashes from unhandled errors
+process.on('uncaughtException', (err) => {
+  console.error('🔥 UNCAUGHT EXCEPTION! Shutting down...');
+  console.error(err.name, err.message, err.stack);
+  // Give some time for logs to be written then exit
+  setTimeout(() => process.exit(1), 1000);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('🔥 UNHANDLED REJECTION! Shutting down...');
+  console.error(err.name, err.message, err.stack);
+  // In production, we might want to exit and let a process manager (PM2/K8s) restart
+  // For now, we'll log it clearly
+});
+
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -34,19 +49,51 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Error handling middleware
+// 404 Handler
+app.use((req, res) => {
+  res.status(404).json({ error: `Not Found - ${req.originalUrl}` });
+});
+
+// Enhanced Centralized Error Handling Middleware
 app.use((err, req, res, next) => {
-  console.error('Server error:', err);
+  // Log the error for developers
+  console.error('❌ Server Error Details:', {
+    message: err.message,
+    stack: process.env.NODE_ENV === 'production' ? '🥞' : err.stack,
+    path: req.path,
+    method: req.method,
+  });
+
+  // Handle specific error types
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({ 
+      error: 'Validation Error', 
+      details: Object.values(err.errors).map(e => e.message) 
+    });
+  }
+
+  if (err.name === 'CastError') {
+    return res.status(400).json({ 
+      error: `Invalid ${err.path}: ${err.value}` 
+    });
+  }
 
   if (err.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({ error: 'File too large. Maximum size is 50MB.' });
+    return res.status(413).json({ 
+      error: 'File too large. Maximum size is 50MB.' 
+    });
   }
 
   if (err.message?.includes('Only .dwg and .dxf')) {
     return res.status(400).json({ error: err.message });
   }
 
-  res.status(500).json({ error: 'Internal server error' });
+  // Generic internal server error
+  const statusCode = err.statusCode || 500;
+  res.status(statusCode).json({
+    error: err.message || 'Internal server error',
+    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+  });
 });
 
 app.listen(PORT, () => {

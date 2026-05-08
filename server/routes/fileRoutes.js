@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const upload = require('../middleware/upload');
+const asyncHandler = require('../utils/asyncHandler');
 const {
   uploadFile,
   getFile,
@@ -9,15 +10,15 @@ const {
 } = require('../controllers/fileController');
 
 // Upload a file
-router.post('/upload', upload.single('file'), uploadFile);
+router.post('/upload', upload.single('file'), asyncHandler(uploadFile));
 
 // List all drawings
-router.get('/', listFiles);
+router.get('/', asyncHandler(listFiles));
 
 // Get a specific drawing
-router.get('/:id', getFile);
+router.get('/:id', asyncHandler(getFile));
 
 // Delete a drawing
-router.delete('/:id', deleteFile);
+router.delete('/:id', asyncHandler(deleteFile));
 
 module.exports = router;

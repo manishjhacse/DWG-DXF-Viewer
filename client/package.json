@@ -5,10 +5,14 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "copy-cesium": "node -e \"const fs=require('fs');const path=require('path');const src=path.join('node_modules','cesium','Build','Cesium');const dest=path.join('public','cesium');['Workers','ThirdParty','Assets','Widgets'].forEach(d=>{const s=path.join(src,d);const t=path.join(dest,d);if(!fs.existsSync(t)){fs.cpSync(s,t,{recursive:true})}});console.log('Cesium assets copied')\"",
+    "postinstall": "npm run copy-cesium"
   },
   "dependencies": {
     "axios": "^1.16.0",
+    "cesium": "^1.141.0",
+    "leaflet": "^1.9.4",
     "next": "16.2.5",
     "react": "19.2.4",
     "react-dom": "19.2.4",

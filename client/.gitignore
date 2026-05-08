@@ -180,6 +180,7 @@ cypress/screenshots/
 # =========================
 public/uploads/
 public/temp/
+public/cesium/
 
 # =========================
 # PM2

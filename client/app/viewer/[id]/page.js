@@ -6,9 +6,11 @@ import dynamic from "next/dynamic";
 import LayerPanel from "../../components/LayerPanel";
 import Toolbar from "../../components/Toolbar";
 import EntityInspector from "../../components/EntityInspector";
+import MapPlacementControls from "../../components/MapPlacementControls";
 
-// Dynamic import to avoid SSR issues with Three.js
+// Dynamic imports to avoid SSR issues
 const DrawingCanvas = dynamic(() => import("../../components/DrawingCanvas"), { ssr: false });
+const LeafletMapViewer = dynamic(() => import("../../components/CesiumMapViewer"), { ssr: false });
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
@@ -24,6 +26,14 @@ export default function ViewerPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedEntity, setSelectedEntity] = useState(null);
   const canvasKeyRef = useRef(0);
+
+  // Map placement state
+  const [viewMode, setViewMode] = useState("2d"); // "2d" | "map"
+  const [anchorLat, setAnchorLat] = useState(null);
+  const [anchorLng, setAnchorLng] = useState(null);
+  const [mapRotation, setMapRotation] = useState(0);
+  const [mapScale, setMapScale] = useState(1);
+  const [mapKey, setMapKey] = useState(0); // Force re-render on mode switch
 
   useEffect(() => {
     const fetchDrawing = async () => {
@@ -72,6 +82,38 @@ export default function ViewerPage() {
   const handleToggleBg = useCallback(() => setBgColor(c => c === "dark" ? "light" : "dark"), []);
   const handleToggleLabels = useCallback(() => setShowLabels(s => !s), []);
   const handleToggleSidebar = useCallback(() => setSidebarCollapsed(s => !s), []);
+
+  // Map controls
+  const handleToggleMapView = useCallback(() => {
+    setViewMode(prev => {
+      if (prev === "2d") {
+        setMapKey(k => k + 1);
+        return "map";
+      }
+      return "2d";
+    });
+  }, []);
+
+  const handleAnchorChange = useCallback((lat, lng) => {
+    setAnchorLat(lat);
+    setAnchorLng(lng);
+  }, []);
+
+  const handleResetPosition = useCallback(() => {
+    setAnchorLat(null);
+    setAnchorLng(null);
+    setMapRotation(0);
+    setMapScale(1);
+  }, []);
+
+  const handleBackTo2D = useCallback(() => {
+    setViewMode("2d");
+  }, []);
+
+  const handleSearchPlace = useCallback((lat, lng) => {
+    setAnchorLat(lat);
+    setAnchorLng(lng);
+  }, []);
 
   if (loading) {
     return (
@@ -157,6 +199,21 @@ export default function ViewerPage() {
             </div>
           </div>
 
+          {/* View Mode Indicator */}
+          {viewMode === "map" && (
+            <div className="viewer-sidebar-section">
+              <h3>View Mode</h3>
+              <div className="view-mode-indicator map-mode">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="2" y1="12" x2="22" y2="12"/>
+                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                </svg>
+                Satellite Map Mode
+              </div>
+            </div>
+          )}
+
           {/* Layers */}
           <LayerPanel
             layers={parsedData.layers}
@@ -174,40 +231,69 @@ export default function ViewerPage() {
         </div>
       </div>
 
-      {/* Canvas Area */}
-      <div className={`viewer-canvas ${bgColor === "light" ? "light-bg" : "dark-bg"}`}>
-        <DrawingCanvas
-          key={canvasKeyRef.current}
-          parsedData={parsedData}
-          visibleLayers={visibleLayers}
-          bgColor={bgColor}
-          showLabels={showLabels}
-          onSelectEntity={setSelectedEntity}
-          selectedEntity={selectedEntity}
-          zoom={zoom}
-          onZoomChange={setZoom}
-        />
-        
-        {selectedEntity && (
-          <EntityInspector 
-            entity={selectedEntity} 
-            onClose={() => setSelectedEntity(null)} 
+      {/* Canvas / Map Area */}
+      {viewMode === "2d" ? (
+        <div className={`viewer-canvas ${bgColor === "light" ? "light-bg" : "dark-bg"}`}>
+          <DrawingCanvas
+            key={canvasKeyRef.current}
+            parsedData={parsedData}
+            visibleLayers={visibleLayers}
+            bgColor={bgColor}
+            showLabels={showLabels}
+            onSelectEntity={setSelectedEntity}
+            selectedEntity={selectedEntity}
+            zoom={zoom}
+            onZoomChange={setZoom}
           />
-        )}
+          
+          {selectedEntity && (
+            <EntityInspector 
+              entity={selectedEntity} 
+              onClose={() => setSelectedEntity(null)} 
+            />
+          )}
+        </div>
+      ) : (
+        <div className="viewer-canvas map-view">
+          <LeafletMapViewer
+            key={mapKey}
+            parsedData={parsedData}
+            visibleLayers={visibleLayers}
+            anchorLat={anchorLat}
+            anchorLng={anchorLng}
+            rotation={mapRotation}
+            scale={mapScale}
+            onAnchorChange={handleAnchorChange}
+          />
+          
+          <MapPlacementControls
+            anchorLat={anchorLat}
+            anchorLng={anchorLng}
+            rotation={mapRotation}
+            scale={mapScale}
+            onRotationChange={setMapRotation}
+            onScaleChange={setMapScale}
+            onResetPosition={handleResetPosition}
+            onBackTo2D={handleBackTo2D}
+            onSearchPlace={handleSearchPlace}
+          />
+        </div>
+      )}
 
-        <Toolbar
-          zoom={zoom}
-          onZoomIn={handleZoomIn}
-          onZoomOut={handleZoomOut}
-          onFitView={handleFitView}
-          bgColor={bgColor}
-          onToggleBg={handleToggleBg}
-          showLabels={showLabels}
-          onToggleLabels={handleToggleLabels}
-          onToggleSidebar={handleToggleSidebar}
-          sidebarCollapsed={sidebarCollapsed}
-        />
-      </div>
+      <Toolbar
+        zoom={zoom}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        onFitView={handleFitView}
+        bgColor={bgColor}
+        onToggleBg={handleToggleBg}
+        showLabels={showLabels}
+        onToggleLabels={handleToggleLabels}
+        onToggleSidebar={handleToggleSidebar}
+        sidebarCollapsed={sidebarCollapsed}
+        viewMode={viewMode}
+        onToggleMapView={handleToggleMapView}
+      />
     </div>
   );
 }
