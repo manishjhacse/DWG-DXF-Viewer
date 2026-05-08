@@ -276,6 +276,7 @@ export default function ViewerPage() {
             onResetPosition={handleResetPosition}
             onBackTo2D={handleBackTo2D}
             onSearchPlace={handleSearchPlace}
+            onAnchorChange={handleAnchorChange}
           />
         </div>
       )}

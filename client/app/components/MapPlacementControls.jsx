@@ -11,6 +11,7 @@ export default function MapPlacementControls({
   onResetPosition,
   onBackTo2D,
   onSearchPlace,
+  onAnchorChange,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -20,7 +21,7 @@ export default function MapPlacementControls({
 
   const hasPlacement = anchorLat != null && anchorLng != null;
 
-  // Search using Nominatim (OpenStreetMap geocoding - free, no API key)
+  // Search using Photon API (Komoot) and support direct coordinates
   const handleSearch = useCallback(async (query) => {
     setSearchQuery(query);
 
@@ -34,20 +35,59 @@ export default function MapPlacementControls({
     searchTimeoutRef.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`
-        );
+        // Direct Coordinate parsing
+        const cleanedQuery = query.replace(/[^\d., -]/g, '').trim();
+        const parts = cleanedQuery.split(/[, ]+/).filter(Boolean);
+        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+          setSearchResults([{
+            name: `Coordinates: ${parts[0]}, ${parts[1]}`,
+            lat: parseFloat(parts[0]),
+            lng: parseFloat(parts[1])
+          }]);
+          return;
+        }
+
+        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5`);
         const data = await res.json();
-        setSearchResults(
-          data.map((item) => ({
-            name: item.display_name,
-            lat: parseFloat(item.lat),
-            lng: parseFloat(item.lon),
-          }))
-        );
+        
+        if (data && data.features && Array.isArray(data.features)) {
+          const results = [];
+          
+          for (let i = 0; i < data.features.length; i++) {
+            try {
+              const f = data.features[i];
+              if (!f.geometry || !f.geometry.coordinates) continue;
+              
+              const props = f.properties || {};
+              const nameParts = [props.name, props.city, props.state, props.country].filter(Boolean);
+              
+              // Simple deduplication without Set just in case
+              const uniqueNameParts = [];
+              nameParts.forEach(part => {
+                if (!uniqueNameParts.includes(part)) uniqueNameParts.push(part);
+              });
+              
+              results.push({
+                name: uniqueNameParts.join(", ") || "Unknown Location",
+                lat: f.geometry.coordinates[1],
+                lng: f.geometry.coordinates[0],
+              });
+            } catch (err) {
+              console.error("Error parsing feature", err);
+            }
+          }
+          
+          if (results.length > 0) {
+            setSearchResults(results);
+          } else {
+            setSearchResults([{ name: "No locations found", lat: 0, lng: 0, isError: true }]);
+          }
+        } else {
+          setSearchResults([{ name: "Invalid response format", lat: 0, lng: 0, isError: true }]);
+        }
       } catch (e) {
         console.error("Search failed:", e);
-        setSearchResults([]);
+        setSearchResults([{ name: "Search Error: " + e.message, lat: 0, lng: 0, isError: true }]);
       } finally {
         setSearching(false);
       }
@@ -99,26 +139,52 @@ export default function MapPlacementControls({
                 onChange={(e) => handleSearch(e.target.value)}
               />
               {searching && <div className="map-search-spinner" />}
+              
+              {/* Absolute Positioned Search Results */}
+              {searchResults.length > 0 && (
+                <div className="map-search-results" style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  zIndex: 9999,
+                  background: 'var(--bg-glass-hover)',
+                  backdropFilter: 'blur(16px)',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+                  border: '1px solid var(--border-primary)',
+                  marginTop: '8px'
+                }}>
+                  {searchResults.map((result, i) => (
+                    <button
+                      key={i}
+                      className="map-search-result-item"
+                      onClick={() => {
+                        if (!result.isError) handleSelectPlace(result);
+                      }}
+                      style={{ 
+                        cursor: result.isError ? "default" : "pointer", 
+                        color: result.isError ? "#ef4444" : "var(--text-primary)",
+                        padding: "10px",
+                        borderBottom: i < searchResults.length - 1 ? "1px solid var(--border-primary)" : "none"
+                      }}
+                    >
+                      {!result.isError && (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                          <circle cx="12" cy="10" r="3"/>
+                          <path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/>
+                        </svg>
+                      )}
+                      {result.isError && (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                      )}
+                      <span>{result.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-
-            {/* Search Results */}
-            {searchResults.length > 0 && (
-              <div className="map-search-results">
-                {searchResults.map((result, i) => (
-                  <button
-                    key={i}
-                    className="map-search-result-item"
-                    onClick={() => handleSelectPlace(result)}
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                      <circle cx="12" cy="10" r="3"/>
-                      <path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/>
-                    </svg>
-                    <span>{result.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
 
           {/* Placement hint */}
@@ -140,11 +206,23 @@ export default function MapPlacementControls({
               <div className="map-controls-coords">
                 <div className="coord-item">
                   <span className="coord-label">Lat</span>
-                  <span className="coord-value">{anchorLat.toFixed(6)}°</span>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    className="coord-input"
+                    value={anchorLat === null ? "" : anchorLat}
+                    onChange={(e) => onAnchorChange && onAnchorChange(parseFloat(e.target.value) || 0, anchorLng)}
+                  />
                 </div>
                 <div className="coord-item">
                   <span className="coord-label">Lng</span>
-                  <span className="coord-value">{anchorLng.toFixed(6)}°</span>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    className="coord-input"
+                    value={anchorLng === null ? "" : anchorLng}
+                    onChange={(e) => onAnchorChange && onAnchorChange(anchorLat, parseFloat(e.target.value) || 0)}
+                  />
                 </div>
               </div>
             </div>

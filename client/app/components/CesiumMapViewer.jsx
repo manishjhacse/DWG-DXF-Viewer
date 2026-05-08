@@ -90,24 +90,25 @@ export default function LeafletMapViewer({
         zoom: 5,
         zoomControl: false,
         attributionControl: false,
+        maxZoom: 24,
       });
 
-      // Satellite imagery layer (Esri)
+      // Satellite imagery layer (Google)
       const satellite = L.tileLayer(
-        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        { maxZoom: 20, attribution: "Esri" }
+        "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+        { maxZoom: 24, maxNativeZoom: 21, attribution: "Google" }
       );
 
       // Street/Labels layer
       const streets = L.tileLayer(
         "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        { maxZoom: 19, attribution: "OSM" }
+        { maxZoom: 24, maxNativeZoom: 19, attribution: "OSM" }
       );
 
-      // Hybrid: satellite + labels overlay
+      // Hybrid: satellite + labels overlay (Google)
       const labels = L.tileLayer(
-        "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-        { maxZoom: 20, attribution: "Esri" }
+        "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+        { maxZoom: 24, maxNativeZoom: 21, attribution: "Google" }
       );
 
       // Layer controls
