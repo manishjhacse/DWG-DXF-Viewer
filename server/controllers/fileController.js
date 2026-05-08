@@ -65,6 +65,9 @@ const processDxfFile = async (drawing, buffer) => {
       entityCount: parsedData.entityCount,
       bounds: parsedData.bounds,
     };
+    if (parsedData.geolocation) {
+      drawing.metadata.geolocation = parsedData.geolocation;
+    }
 
     // Upload to S3 for persistence
     const s3Key = `drawings/dxf/${drawing._id}/${drawing.originalName}`;
@@ -120,6 +123,9 @@ const processDwgFile = async (drawing, buffer, originalName) => {
       entityCount: parsedData.entityCount,
       bounds: parsedData.bounds,
     };
+    if (parsedData.geolocation) {
+      drawing.metadata.geolocation = parsedData.geolocation;
+    }
 
     await drawing.save();
   } catch (err) {

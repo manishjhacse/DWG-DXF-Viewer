@@ -46,6 +46,17 @@ export default function ViewerPage() {
         if (d.parsedData?.layers) {
           setVisibleLayers(new Set(d.parsedData.layers.map(l => l.name)));
         }
+
+        // Initialize map placement if geolocation metadata exists
+        if (d.metadata?.geolocation) {
+          setAnchorLat(d.metadata.geolocation.latitude);
+          setAnchorLng(d.metadata.geolocation.longitude);
+          if (d.metadata.geolocation.northDirection) {
+             // Convert north direction to rotation angle if needed
+             // DWG north direction is usually a Y vector, but we can just map it or start with 0
+             // We'll leave mapRotation as 0 unless we calculate true angle
+          }
+        }
       } catch (err) {
         setError(err.response?.data?.error || "Failed to load drawing");
       } finally {

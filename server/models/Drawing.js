@@ -45,6 +45,11 @@ const drawingSchema = new mongoose.Schema({
       maxX: Number,
       maxY: Number,
     },
+    geolocation: {
+      latitude: { type: Number },
+      longitude: { type: Number },
+      northDirection: { type: Number },
+    },
   },
 }, {
   timestamps: true,

@@ -46,9 +46,11 @@ const parseDwgFile = async (fileBuffer) => {
     // Read using the WASM file reader
     const result = libredwg.dwg_read_file(tmpName, DwgFileType.DWG);
 
-    if (result.error !== 0) {
-      console.warn(`dwg_read_file returned error ${result.error} for ${tmpName}`);
+    if (result.error >= 64) {
+      console.warn(`dwg_read_file returned severe error ${result.error} for ${tmpName}`);
       throw new Error(`LibreDWG error code: ${result.error}`);
+    } else if (result.error !== 0) {
+      console.warn(`LibreDWG non-critical warning (code ${result.error}) for ${tmpName}. Continuing parsing...`);
     }
 
     dwgDataPtr = result.data;
@@ -127,12 +129,32 @@ const parseDwgFile = async (fileBuffer) => {
     maxY: isFinite(maxY) ? maxY : 100,
   };
 
+  // Attempt to extract GEODATA (geolocation)
+  let geolocation = null;
+  const objList = Array.isArray(db.objects) ? db.objects : (db.objects ? Object.values(db.objects) : []);
+  const entList = Array.isArray(db.entities) ? db.entities : (db.entities ? Object.values(db.entities) : []);
+  const allObjects = objList.concat(entList);
+  
+  const geoObj = allObjects.find(o => o && (o.type === 'GEODATA' || o.objectType === 'GEODATA'));
+  
+  if (geoObj) {
+    if (geoObj.latitude !== undefined && geoObj.longitude !== undefined) {
+      geolocation = {
+        latitude: geoObj.latitude,
+        longitude: geoObj.longitude,
+        northDirection: geoObj.north_direction ? (geoObj.north_direction.y || 0) : 0,
+      };
+      console.log('✅ Extracted DWG GEODATA:', geolocation);
+    }
+  }
+
   return {
     entities,
     layers,
     bounds,
     entityCount: entities.length,
     header: {},
+    ...(geolocation && { geolocation }),
   };
 };
 
