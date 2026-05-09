@@ -10,7 +10,7 @@ import MapPlacementControls from "../../components/MapPlacementControls";
 
 // Dynamic imports to avoid SSR issues
 const DrawingCanvas = dynamic(() => import("../../components/DrawingCanvas"), { ssr: false });
-const LeafletMapViewer = dynamic(() => import("../../components/CesiumMapViewer"), { ssr: false });
+const LeafletMapViewer = dynamic(() => import("../../components/LeafletMapViewer"), { ssr: false });
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
@@ -270,6 +270,7 @@ export default function ViewerPage() {
             key={mapKey}
             parsedData={parsedData}
             visibleLayers={visibleLayers}
+            showLabels={showLabels}
             anchorLat={anchorLat}
             anchorLng={anchorLng}
             rotation={mapRotation}

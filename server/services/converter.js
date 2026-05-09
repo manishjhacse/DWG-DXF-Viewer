@@ -46,7 +46,7 @@ const parseDwgFile = async (fileBuffer) => {
     // Read using the WASM file reader
     const result = libredwg.dwg_read_file(tmpName, DwgFileType.DWG);
 
-    if (result.error >= 64) {
+    if (result.error >= 128) {
       console.warn(`dwg_read_file returned severe error ${result.error} for ${tmpName}`);
       throw new Error(`LibreDWG error code: ${result.error}`);
     } else if (result.error !== 0) {

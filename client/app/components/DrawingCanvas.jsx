@@ -172,6 +172,17 @@ export default function DrawingCanvas({
       setInternalZoom(Math.round(cam.zoom * 100));
     }
 
+    const colorGroups = {}; // hexColor -> { positions: [], entityMap: [] }
+
+    const addLineSegment = (hexColor, p1, p2, entity) => {
+      if (!colorGroups[hexColor]) colorGroups[hexColor] = { positions: [], entityMap: [] };
+      const cg = colorGroups[hexColor];
+      const idx = cg.positions.length / 3;
+      cg.positions.push(p1.x, p1.y, 0, p2.x, p2.y, 0);
+      cg.entityMap[idx] = entity;
+      cg.entityMap[idx + 1] = entity;
+    };
+
     (parsedData.entities || []).forEach((entity) => {
       if (visibleLayers && !visibleLayers.has(entity.layer)) return;
       
@@ -181,41 +192,41 @@ export default function DrawingCanvas({
                         selectedEntity.layer === entity.layer && 
                         JSON.stringify(entity.position || entity.startPoint) === JSON.stringify(selectedEntity.position || selectedEntity.startPoint);
 
-      const color = new THREE.Color(isSelected ? "#ffffff" : hexColor);
-      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: isSelected ? 1 : 0.8 });
+      const color = isSelected ? "#ffffff" : hexColor;
 
-      let obj;
       switch (entity.type) {
         case "LINE":
           if (entity.startPoint && entity.endPoint) {
-            const geo = new THREE.BufferGeometry().setFromPoints([
-              new THREE.Vector3(entity.startPoint.x, entity.startPoint.y, 0),
-              new THREE.Vector3(entity.endPoint.x, entity.endPoint.y, 0),
-            ]);
-            obj = new THREE.Line(geo, mat);
+            addLineSegment(color, entity.startPoint, entity.endPoint, entity);
           }
           break;
         case "LWPOLYLINE":
         case "POLYLINE":
           if (entity.vertices?.length) {
-            const pts = entity.vertices.map(v => new THREE.Vector3(v.x, v.y, 0));
-            if (entity.closed) pts.push(pts[0].clone());
-            const geo = new THREE.BufferGeometry().setFromPoints(pts);
-            obj = new THREE.Line(geo, mat);
+            for (let i = 0; i < entity.vertices.length - 1; i++) {
+              addLineSegment(color, entity.vertices[i], entity.vertices[i + 1], entity);
+            }
+            if (entity.closed && entity.vertices.length > 0) {
+              addLineSegment(color, entity.vertices[entity.vertices.length - 1], entity.vertices[0], entity);
+            }
           }
           break;
         case "CIRCLE":
           if (entity.center) {
             const curve = new THREE.EllipseCurve(entity.center.x, entity.center.y, entity.radius, entity.radius, 0, Math.PI * 2);
-            const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(64).map(p => new THREE.Vector3(p.x, p.y, 0)));
-            obj = new THREE.Line(geo, mat);
+            const pts = curve.getPoints(64);
+            for (let i = 0; i < pts.length - 1; i++) {
+              addLineSegment(color, pts[i], pts[i + 1], entity);
+            }
           }
           break;
         case "ARC":
           if (entity.center) {
             const curve = new THREE.EllipseCurve(entity.center.x, entity.center.y, entity.radius, entity.radius, (entity.startAngle || 0) * Math.PI/180, (entity.endAngle || 360) * Math.PI/180);
-            const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(64).map(p => new THREE.Vector3(p.x, p.y, 0)));
-            obj = new THREE.Line(geo, mat);
+            const pts = curve.getPoints(64);
+            for (let i = 0; i < pts.length - 1; i++) {
+              addLineSegment(color, pts[i], pts[i + 1], entity);
+            }
           }
           break;
         case "TEXT":
@@ -224,7 +235,7 @@ export default function DrawingCanvas({
             const div = document.createElement("div");
             div.className = `drawing-label ${bgColor === "light" ? "light" : "dark"} ${isSelected ? "selected" : ""}`;
             div.textContent = (entity.text || "").replace(/\\P/g, "\n").replace(/\{[^}]+\}/g, "");
-            div.style.color = isSelected ? "#fff" : hexColor;
+            div.style.color = color;
             const label = new CSS2DObject(div);
             label.position.set(entity.position.x, entity.position.y, 0);
             group.add(label);
@@ -236,7 +247,9 @@ export default function DrawingCanvas({
             const shape = new THREE.Shape();
             shape.moveTo(entity.points[0].x, entity.points[0].y);
             entity.points.slice(1).forEach(p => shape.lineTo(p.x, p.y));
-            obj = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, side: THREE.DoubleSide }));
+            const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, side: THREE.DoubleSide }));
+            group.add(mesh);
+            objectToEntityMap.current.set(mesh, entity);
           }
           break;
         case "HATCH":
@@ -254,10 +267,19 @@ export default function DrawingCanvas({
           }
           break;
       }
-      if (obj) {
-        group.add(obj);
-        objectToEntityMap.current.set(obj, entity);
-      }
+    });
+
+    // Create Batched LineSegments
+    Object.keys(colorGroups).forEach(hexColor => {
+      const cg = colorGroups[hexColor];
+      if (cg.positions.length === 0) return;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(cg.positions, 3));
+      const mat = new THREE.LineBasicMaterial({ color: hexColor, transparent: true, opacity: hexColor === "#ffffff" ? 1 : 0.8 });
+      const lineSegments = new THREE.LineSegments(geo, mat);
+      
+      lineSegments.userData.entityMap = cg.entityMap;
+      group.add(lineSegments);
     });
   }, [parsedData, visibleLayers, bgColor, showLabels, selectedEntity]);
 
@@ -327,7 +349,13 @@ export default function DrawingCanvas({
         raycasterRef.current.params.Line.threshold = 5 / cam.zoom;
         const hits = raycasterRef.current.intersectObjects(entityGroupRef.current.children, true);
         if (hits.length > 0) {
-          const entity = objectToEntityMap.current.get(hits[0].object);
+          const hit = hits[0];
+          let entity = null;
+          if (hit.object.userData && hit.object.userData.entityMap && hit.index !== undefined) {
+             entity = hit.object.userData.entityMap[hit.index];
+          } else {
+             entity = objectToEntityMap.current.get(hit.object);
+          }
           if (onSelectEntity) onSelectEntity(entity);
         } else {
           if (onSelectEntity) onSelectEntity(null);

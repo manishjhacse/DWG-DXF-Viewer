@@ -51,6 +51,7 @@ const cadToLatLng = (L, cadX, cadY, bounds, anchorLat, anchorLng, rotation, scal
 export default function LeafletMapViewer({
   parsedData,
   visibleLayers,
+  showLabels = true,
   anchorLat,
   anchorLng,
   rotation,
@@ -91,6 +92,7 @@ export default function LeafletMapViewer({
         zoomControl: false,
         attributionControl: false,
         maxZoom: 24,
+        preferCanvas: true, // Massive optimization: draw all vectors on a single HTML5 canvas
       });
 
       // Satellite imagery layer (Google)
@@ -284,7 +286,7 @@ export default function LeafletMapViewer({
 
           case "TEXT":
           case "MTEXT":
-            if (entity.position) {
+            if (showLabels && entity.position) {
               const pos = toLL(entity.position.x, entity.position.y);
               const text = (entity.text || "").replace(/\\P/g, "\n").replace(/\{[^}]+\}/g, "");
               if (text.trim()) {
@@ -336,7 +338,7 @@ export default function LeafletMapViewer({
         // Skip unparseable entities
       }
     });
-  }, [parsedData, visibleLayers, anchorLat, anchorLng, rotation, scale, mapReady]);
+  }, [parsedData, visibleLayers, showLabels, anchorLat, anchorLng, rotation, scale, mapReady]);
 
   return (
     <div

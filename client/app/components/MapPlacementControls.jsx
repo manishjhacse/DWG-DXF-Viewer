@@ -1,6 +1,5 @@
 "use client";
 import { useState, useCallback, useRef } from "react";
-
 export default function MapPlacementControls({
   anchorLat,
   anchorLng,
@@ -124,6 +123,7 @@ export default function MapPlacementControls({
 
       {!collapsed && (
         <div className="map-controls-body">
+
           {/* Location Search */}
           <div className="map-controls-section">
             <div className="map-controls-label">Search Location</div>
