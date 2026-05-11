@@ -103,6 +103,7 @@ const parseDwgFile = async (fileBuffer) => {
   }
 
   // Process entities
+  const unknownTypes = new Set();
   db.entities.forEach((entity) => {
     try {
       const layerName = entity.layer || '0';
@@ -110,11 +111,17 @@ const parseDwgFile = async (fileBuffer) => {
       const parsed = convertEntity(entity, updateBounds);
       if (parsed) {
         entities.push(parsed);
+      } else if (entity.type) {
+        unknownTypes.add(entity.type);
       }
     } catch (e) {
-      // Skip unparseable entities
+      console.warn(`⚠️ Failed to parse entity type ${entity.type}:`, e.message);
     }
   });
+
+  if (unknownTypes.size > 0) {
+    console.log(`ℹ️ Skipped unhandled entity types: ${[...unknownTypes].join(', ')}`);
+  }
 
   // Build final layers (merge table layers + entity-discovered layers)
   const layers = Array.from(layerSet).map((name) => {
@@ -162,12 +169,23 @@ const parseDwgFile = async (fileBuffer) => {
  * Convert a DwgEntity from the database into our simplified format
  */
 const convertEntity = (entity, updateBounds) => {
+  // Normalize the type — LibreDWG can return different casings and aliases
+  const rawType = (entity.type || '').toUpperCase().trim();
+  // Map known variants to canonical names
+  const TYPE_ALIASES = {
+    'LW_POLYLINE': 'LWPOLYLINE',
+    'LWPOLY':      'LWPOLYLINE',
+    'POLYLINE_2D': 'LWPOLYLINE',
+    'POLYLINE_3D': 'LWPOLYLINE',
+    'LINE2':       'LINE',
+  };
+  const t = TYPE_ALIASES[rawType] || rawType;
+
   const base = {
-    type: (entity.type || '').toUpperCase(),
+    type: t,
     layer: entity.layer || '0',
     color: entity.colorIndex,
   };
-  const t = base.type;
 
   if (t === 'LINE') {
     const s = entity.startPoint || entity.start;

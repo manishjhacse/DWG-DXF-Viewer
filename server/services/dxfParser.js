@@ -45,17 +45,24 @@ const parseDxfFile = (fileContent) => {
     maxY = Math.max(maxY, y);
   };
 
+  const unknownTypes = new Set();
   if (dxf.entities) {
     dxf.entities.forEach((entity) => {
       try {
         const parsed = parseEntity(entity, updateBounds);
         if (parsed) {
           entities.push(parsed);
+        } else if (entity.type) {
+          unknownTypes.add(entity.type);
         }
       } catch (e) {
-        // Skip unparseable entities silently
+        console.warn(`⚠️ DXF: Failed to parse entity type ${entity.type}:`, e.message);
       }
     });
+  }
+
+  if (unknownTypes.size > 0) {
+    console.log(`ℹ️ DXF skipped unhandled entity types: ${[...unknownTypes].join(', ')}`);
   }
 
   const bounds = {

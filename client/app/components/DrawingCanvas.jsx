@@ -134,12 +134,6 @@ export default function DrawingCanvas({
 
     const scene = sceneRef.current;
     const group = entityGroupRef.current;
-    // In orthomosaic mode, clear solid background so the image plane is visible
-    if (orthomosaic?.url) {
-      scene.background = null;
-    } else {
-      scene.background = new THREE.Color(bgColor === "light" ? 0xf5f5f5 : 0x0a0a0f);
-    }
 
     // Clear existing
     while (group.children.length > 0) {
@@ -208,35 +202,125 @@ export default function DrawingCanvas({
             addLineSegment(color, entity.startPoint, entity.endPoint, entity);
           }
           break;
+
         case "LWPOLYLINE":
-        case "POLYLINE":
-          if (entity.vertices?.length) {
-            for (let i = 0; i < entity.vertices.length - 1; i++) {
-              addLineSegment(color, entity.vertices[i], entity.vertices[i + 1], entity);
+        case "POLYLINE": {
+          const verts = entity.vertices;
+          if (verts?.length) {
+            for (let i = 0; i < verts.length - 1; i++) {
+              const v0 = verts[i];
+              const v1 = verts[i + 1];
+              const bulge = v0.bulge || 0;
+              if (Math.abs(bulge) < 1e-9) {
+                // Straight segment
+                addLineSegment(color, v0, v1, entity);
+              } else {
+                // Arc segment from bulge
+                const dx = v1.x - v0.x;
+                const dy = v1.y - v0.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < 1e-9) break;
+                const r = (dist / 2) * (1 / Math.abs(bulge) + Math.abs(bulge)) / 2;
+                const a = 4 * Math.atan(Math.abs(bulge));
+                const midX = (v0.x + v1.x) / 2;
+                const midY = (v0.y + v1.y) / 2;
+                const d = Math.sqrt(r * r - (dist / 2) * (dist / 2));
+                const nx = -dy / dist;
+                const ny = dx / dist;
+                const sign = bulge > 0 ? -1 : 1;
+                const cx = midX + sign * d * nx;
+                const cy = midY + sign * d * ny;
+                const startAng = Math.atan2(v0.y - cy, v0.x - cx);
+                const endAng = Math.atan2(v1.y - cy, v1.x - cx);
+                const curve = new THREE.EllipseCurve(cx, cy, r, r,
+                  startAng, endAng, bulge < 0);
+                const bPts = curve.getPoints(Math.max(8, Math.ceil(a / (Math.PI / 16))));
+                for (let j = 0; j < bPts.length - 1; j++) {
+                  addLineSegment(color, bPts[j], bPts[j + 1], entity);
+                }
+              }
             }
-            if (entity.closed && entity.vertices.length > 0) {
-              addLineSegment(color, entity.vertices[entity.vertices.length - 1], entity.vertices[0], entity);
+            if (entity.closed && verts.length > 1) {
+              addLineSegment(color, verts[verts.length - 1], verts[0], entity);
             }
           }
           break;
+        }
+
         case "CIRCLE":
           if (entity.center) {
-            const curve = new THREE.EllipseCurve(entity.center.x, entity.center.y, entity.radius, entity.radius, 0, Math.PI * 2);
-            const pts = curve.getPoints(64);
-            for (let i = 0; i < pts.length - 1; i++) {
-              addLineSegment(color, pts[i], pts[i + 1], entity);
-            }
+            const curve = new THREE.EllipseCurve(
+              entity.center.x, entity.center.y,
+              entity.radius, entity.radius,
+              0, Math.PI * 2
+            );
+            const pts = curve.getPoints(72);
+            for (let i = 0; i < pts.length - 1; i++) addLineSegment(color, pts[i], pts[i + 1], entity);
+            // Close the circle
+            addLineSegment(color, pts[pts.length - 1], pts[0], entity);
           }
           break;
+
         case "ARC":
           if (entity.center) {
-            const curve = new THREE.EllipseCurve(entity.center.x, entity.center.y, entity.radius, entity.radius, (entity.startAngle || 0) * Math.PI/180, (entity.endAngle || 360) * Math.PI/180);
-            const pts = curve.getPoints(64);
-            for (let i = 0; i < pts.length - 1; i++) {
-              addLineSegment(color, pts[i], pts[i + 1], entity);
+            let sA = (entity.startAngle || 0) * Math.PI / 180;
+            let eA = (entity.endAngle || 360) * Math.PI / 180;
+            // Normalize for THREE.js EllipseCurve (counterclockwise)
+            const curve = new THREE.EllipseCurve(
+              entity.center.x, entity.center.y,
+              entity.radius, entity.radius,
+              sA, eA, false
+            );
+            const pts = curve.getPoints(72);
+            for (let i = 0; i < pts.length - 1; i++) addLineSegment(color, pts[i], pts[i + 1], entity);
+          }
+          break;
+
+        case "ELLIPSE":
+          if (entity.center && entity.majorAxis) {
+            const { x: cx, y: cy } = entity.center;
+            const { x: mx, y: my } = entity.majorAxis;
+            const majorR = Math.sqrt(mx * mx + my * my);
+            const minorR = majorR * (entity.axisRatio || 1);
+            const rotAngle = Math.atan2(my, mx);
+            const sA = entity.startAngle || 0;
+            const eA = entity.endAngle || Math.PI * 2;
+            const curve = new THREE.EllipseCurve(cx, cy, majorR, minorR, sA, eA, false, rotAngle);
+            const pts = curve.getPoints(72);
+            for (let i = 0; i < pts.length - 1; i++) addLineSegment(color, pts[i], pts[i + 1], entity);
+          }
+          break;
+
+        case "SPLINE":
+          // Use control points or fit points to draw a Catmull-Rom approximation
+          {
+            const pts = entity.controlPoints?.length ? entity.controlPoints : entity.fitPoints || [];
+            if (pts.length >= 2) {
+              if (pts.length === 2) {
+                addLineSegment(color, pts[0], pts[1], entity);
+              } else {
+                // Catmull-Rom through the control points
+                const vecs = pts.map(p => new THREE.Vector2(p.x, p.y));
+                const curve = new THREE.SplineCurve(vecs);
+                const splinePts = curve.getPoints(Math.max(pts.length * 8, 64));
+                for (let i = 0; i < splinePts.length - 1; i++) {
+                  addLineSegment(color, splinePts[i], splinePts[i + 1], entity);
+                }
+              }
             }
           }
           break;
+
+        case "POINT":
+          // Render points as a small cross
+          if (entity.position) {
+            const { x, y } = entity.position;
+            const s = 2; // cross size
+            addLineSegment(color, { x: x - s, y }, { x: x + s, y }, entity);
+            addLineSegment(color, { x, y: y - s }, { x, y: y + s }, entity);
+          }
+          break;
+
         case "TEXT":
         case "MTEXT":
           if (entity.position && showLabels) {
@@ -249,17 +333,22 @@ export default function DrawingCanvas({
             group.add(label);
           }
           break;
+
         case "SOLID":
         case "3DFACE":
           if (entity.points?.length >= 3) {
             const shape = new THREE.Shape();
             shape.moveTo(entity.points[0].x, entity.points[0].y);
             entity.points.slice(1).forEach(p => shape.lineTo(p.x, p.y));
-            const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, side: THREE.DoubleSide }));
+            const mesh = new THREE.Mesh(
+              new THREE.ShapeGeometry(shape),
+              new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, side: THREE.DoubleSide })
+            );
             group.add(mesh);
             objectToEntityMap.current.set(mesh, entity);
           }
           break;
+
         case "HATCH":
           if (entity.boundaries?.length) {
             entity.boundaries.forEach(b => b.forEach(path => {
@@ -267,12 +356,39 @@ export default function DrawingCanvas({
                 const s = new THREE.Shape();
                 s.moveTo(path[0].x, path[0].y);
                 path.slice(1).forEach(p => s.lineTo(p.x, p.y));
-                const hMesh = new THREE.Mesh(new THREE.ShapeGeometry(s), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.15, side: THREE.DoubleSide }));
+                const hMesh = new THREE.Mesh(
+                  new THREE.ShapeGeometry(s),
+                  new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.15, side: THREE.DoubleSide })
+                );
                 group.add(hMesh);
                 objectToEntityMap.current.set(hMesh, entity);
               }
             }));
           }
+          break;
+
+        // INSERT is a block reference — draw a marker so it's not invisible
+        case "INSERT":
+          if (entity.position) {
+            const { x, y } = entity.position;
+            const ms = 5;
+            addLineSegment(color, { x: x - ms, y: y - ms }, { x: x + ms, y: y + ms }, entity);
+            addLineSegment(color, { x: x + ms, y: y - ms }, { x: x - ms, y: y + ms }, entity);
+          }
+          break;
+
+        // DIMENSION — draw a small marker at the anchor point
+        case "DIMENSION":
+          if (entity.anchorPoint) {
+            const { x, y } = entity.anchorPoint;
+            const ds = 3;
+            addLineSegment(color, { x: x - ds, y }, { x: x + ds, y }, entity);
+            addLineSegment(color, { x, y: y - ds }, { x, y: y + ds }, entity);
+          }
+          break;
+
+        default:
+          // Unhandled types — silently skip but could log for debugging
           break;
       }
     });
@@ -289,7 +405,17 @@ export default function DrawingCanvas({
       lineSegments.userData.entityMap = cg.entityMap;
       group.add(lineSegments);
     });
-  }, [parsedData, visibleLayers, bgColor, showLabels, selectedEntity, orthomosaic]);
+  }, [parsedData, visibleLayers, bgColor, showLabels, selectedEntity]);
+
+  // Separate effect for background color based on orthomosaic mode
+  useEffect(() => {
+    if (!sceneRef.current) return;
+    if (orthomosaic?.url) {
+      sceneRef.current.background = null;
+    } else {
+      sceneRef.current.background = new THREE.Color(bgColor === "light" ? 0xf5f5f5 : 0x0a0a0f);
+    }
+  }, [orthomosaic?.url, bgColor]);
 
   // Handle External Zoom Prop
   useEffect(() => {
@@ -304,10 +430,11 @@ export default function DrawingCanvas({
     }
   }, [externalZoom]);
 
-  // Handle Orthomosaic Background
+  // Handle Orthomosaic Background - LOAD texture
   useEffect(() => {
     if (!sceneRef.current) return;
-    
+
+    // If no orthomosaic URL, remove existing mesh
     if (!orthomosaic?.url) {
       if (orthomosaicMeshRef.current) {
         sceneRef.current.remove(orthomosaicMeshRef.current);
@@ -319,65 +446,95 @@ export default function DrawingCanvas({
       return;
     }
 
-    const loadTexture = (url) => {
-      // Clean up old mesh first
-      if (orthomosaicMeshRef.current) {
-        sceneRef.current.remove(orthomosaicMeshRef.current);
-        orthomosaicMeshRef.current.geometry.dispose();
-        if (orthomosaicMeshRef.current.material.map) orthomosaicMeshRef.current.material.map.dispose();
-        orthomosaicMeshRef.current.material.dispose();
-        orthomosaicMeshRef.current = null;
+    // Only load if URL actually changed
+    if (orthomosaicMeshRef.current?.userData?.loadedUrl === orthomosaic.url) {
+      return; // Already loaded this URL
+    }
+
+    // Clean up old mesh before loading new one
+    if (orthomosaicMeshRef.current) {
+      sceneRef.current.remove(orthomosaicMeshRef.current);
+      orthomosaicMeshRef.current.geometry.dispose();
+      if (orthomosaicMeshRef.current.material.map) orthomosaicMeshRef.current.material.map.dispose();
+      orthomosaicMeshRef.current.material.dispose();
+      orthomosaicMeshRef.current = null;
+    }
+
+    let cancelled = false;
+
+    // Fetch image as blob to completely bypass CORS issues with Three.js textures
+    const loadImage = async () => {
+      try {
+        console.log("[Orthomosaic] Fetching image from:", orthomosaic.url);
+        const response = await fetch(orthomosaic.url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        if (cancelled) return;
+
+        const objectUrl = URL.createObjectURL(blob);
+        
+        // Use a plain Image element to get dimensions and create texture
+        const img = new Image();
+        img.onload = () => {
+          if (cancelled || !sceneRef.current) {
+            URL.revokeObjectURL(objectUrl);
+            return;
+          }
+
+          console.log(`[Orthomosaic] Image loaded: ${img.width}x${img.height}`);
+
+          const texture = new THREE.Texture(img);
+          texture.needsUpdate = true;
+          texture.colorSpace = THREE.SRGBColorSpace;
+
+          const geometry = new THREE.PlaneGeometry(img.width, img.height);
+          const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            side: THREE.DoubleSide,
+            depthTest: false,
+            depthWrite: false,
+          });
+
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.renderOrder = -1;
+          mesh.position.set(
+            orthomosaic.offsetX || 0,
+            orthomosaic.offsetY || 0,
+            -500
+          );
+          mesh.scale.set(orthomosaic.scale || 1, orthomosaic.scale || 1, 1);
+          mesh.rotation.z = -(orthomosaic.rotation || 0) * (Math.PI / 180);
+          mesh.userData.loadedUrl = orthomosaic.url;
+
+          sceneRef.current.add(mesh);
+          orthomosaicMeshRef.current = mesh;
+
+          URL.revokeObjectURL(objectUrl);
+        };
+        img.onerror = () => {
+          console.error("[Orthomosaic] Failed to decode image blob");
+          URL.revokeObjectURL(objectUrl);
+        };
+        img.src = objectUrl;
+      } catch (err) {
+        console.error("[Orthomosaic] Fetch failed:", err);
       }
-
-      const loader = new THREE.TextureLoader();
-      loader.crossOrigin = 'anonymous';
-      loader.load(url, (texture) => {
-        if (!sceneRef.current) return;
-        const imgWidth = texture.image.width;
-        const imgHeight = texture.image.height;
-
-        const geometry = new THREE.PlaneGeometry(imgWidth, imgHeight);
-        const material = new THREE.MeshBasicMaterial({
-          map: texture,
-          side: THREE.DoubleSide,
-          depthTest: false,
-          depthWrite: false,
-          transparent: false,
-        });
-
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.renderOrder = -1; // Render before everything else
-        mesh.position.set(
-          orthomosaic.offsetX || 0,
-          orthomosaic.offsetY || 0,
-          -500 // Well behind CAD entities (camera is at z=1000, near=0.1)
-        );
-        mesh.scale.set(orthomosaic.scale || 1, orthomosaic.scale || 1, 1);
-        mesh.rotation.z = -(orthomosaic.rotation || 0) * (Math.PI / 180);
-
-        sceneRef.current.add(mesh);
-        orthomosaicMeshRef.current = mesh;
-      }, undefined, (err) => {
-        console.error("Error loading orthomosaic texture:", err);
-      });
     };
 
-    if (!orthomosaicMeshRef.current) {
-      loadTexture(orthomosaic.url);
-    } else {
-      // Check if URL changed (replacement upload)
-      if (orthomosaicMeshRef.current.userData.url !== orthomosaic.url) {
-        loadTexture(orthomosaic.url);
-      } else {
-        // Update transforms only
-        const mesh = orthomosaicMeshRef.current;
-        mesh.scale.set(orthomosaic.scale || 1, orthomosaic.scale || 1, 1);
-        mesh.rotation.z = -(orthomosaic.rotation || 0) * (Math.PI / 180);
-        mesh.position.x = orthomosaic.offsetX || 0;
-        mesh.position.y = orthomosaic.offsetY || 0;
-      }
-    }
-  }, [orthomosaic?.url, orthomosaic?.scale, orthomosaic?.rotation, orthomosaic?.offsetX, orthomosaic?.offsetY, orthomosaic]);
+    loadImage();
+
+    return () => { cancelled = true; };
+  }, [orthomosaic?.url]); // ONLY re-run when URL changes
+
+  // Handle Orthomosaic Background - UPDATE transforms (separate from loading)
+  useEffect(() => {
+    if (!orthomosaicMeshRef.current || !orthomosaic) return;
+    const mesh = orthomosaicMeshRef.current;
+    mesh.scale.set(orthomosaic.scale || 1, orthomosaic.scale || 1, 1);
+    mesh.rotation.z = -(orthomosaic.rotation || 0) * (Math.PI / 180);
+    mesh.position.x = orthomosaic.offsetX || 0;
+    mesh.position.y = orthomosaic.offsetY || 0;
+  }, [orthomosaic?.scale, orthomosaic?.rotation, orthomosaic?.offsetX, orthomosaic?.offsetY]);
 
   // Interaction logic
   useEffect(() => {
