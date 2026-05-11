@@ -83,24 +83,31 @@ export default function Toolbar({
 
         <div className="toolbar-divider" />
 
-        {/* Place on Map / Back to 2D toggle */}
+        {/* View Mode toggle: cycles 2D → Orthomosaic → Map */}
         <button 
-          className={`toolbar-btn ${viewMode === "map" ? "active map-active" : ""}`}
+          className={`toolbar-btn ${viewMode === "map" ? "active map-active" : viewMode === "orthomosaic" ? "active" : ""}`}
           onClick={onToggleMapView}
-          title={viewMode === "map" ? "Back to 2D View" : "Place on Map"}
+          title={viewMode === "2d" ? "Switch to Orthomosaic Mode" : viewMode === "orthomosaic" ? "Switch to Map Mode" : "Back to 2D View"}
         >
           {viewMode === "map" ? (
-            // Grid icon for 2D
+            // Grid icon — click to go back to 2D
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
               <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
               <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
             </svg>
-          ) : (
-            // Globe icon for map
+          ) : viewMode === "orthomosaic" ? (
+            // Globe icon — click to go to map
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
               <circle cx="12" cy="12" r="10"/>
               <line x1="2" y1="12" x2="22" y2="12"/>
               <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+          ) : (
+            // Image icon — click to go to orthomosaic mode
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21 15 16 10 5 21"/>
             </svg>
           )}
         </button>

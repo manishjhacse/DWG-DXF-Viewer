@@ -58,8 +58,10 @@ export default function ViewerPage() {
           setAnchorLng(d.metadata.geolocation.longitude);
         }
 
-        if (d.orthomosaic) {
-          setOrthomosaicState(d.orthomosaic);
+        if (d.orthomosaic && d.orthomosaic.s3Key) {
+          // Build an absolute proxy URL from the relative proxy path
+          const absUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/files/${d._id}/orthomosaic/image`;
+          setOrthomosaicState({ ...d.orthomosaic, url: absUrl });
         }
       } catch (err) {
         setError(err.response?.data?.error || "Failed to load drawing");
@@ -85,14 +87,12 @@ export default function ViewerPage() {
       }
       return next;
     });
-    canvasKeyRef.current++;
   }, [drawing]);
 
   const handleZoomIn = useCallback(() => setZoom(z => Math.min(z * 1.2, 1000)), []);
   const handleZoomOut = useCallback(() => setZoom(z => Math.max(z / 1.2, 10)), []);
   const handleFitView = useCallback(() => {
     setZoom(100);
-    canvasKeyRef.current++;
   }, []);
   const handleToggleBg = useCallback(() => setBgColor(c => c === "dark" ? "light" : "dark"), []);
   const handleToggleLabels = useCallback(() => setShowLabels(s => !s), []);
@@ -123,7 +123,9 @@ export default function ViewerPage() {
       const res = await axios.post(`${API}/api/files/${drawing._id}/orthomosaic`, formData, {
         headers: { "Content-Type": "multipart/form-data" }
       });
-      setOrthomosaicState(res.data.orthomosaic);
+      // Build absolute proxy URL from the returned orthomosaic data
+      const absUrl = `${API}/api/files/${drawing._id}/orthomosaic/image`;
+      setOrthomosaicState({ ...res.data.orthomosaic, url: absUrl });
     } catch (err) {
       console.error("Upload failed", err);
       alert(err.response?.data?.error || "Failed to upload orthomosaic.");
@@ -297,7 +299,6 @@ export default function ViewerPage() {
       {viewMode === "2d" || viewMode === "orthomosaic" ? (
         <div className={`viewer-canvas ${bgColor === "light" ? "light-bg" : "dark-bg"}`}>
           <DrawingCanvas
-            key={canvasKeyRef.current}
             parsedData={parsedData}
             visibleLayers={visibleLayers}
             bgColor={bgColor}

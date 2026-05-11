@@ -257,13 +257,12 @@ const uploadOrthomosaic = async (req, res) => {
       const fileStream = fs.createReadStream(tempPath);
       await uploadToS3(fileStream, s3Key, mimetype);
       
-      const bucketName = process.env.S3_BUCKET_NAME;
-      const region = process.env.AWS_REGION || 'us-east-1';
-      const url = `https://${bucketName}.s3.${region}.amazonaws.com/${s3Key}`;
+      // Use a backend proxy URL instead of direct S3 to avoid CORS issues with Three.js TextureLoader
+      const proxyUrl = `/api/files/${drawing._id}/orthomosaic/image`;
 
       drawing.orthomosaic = {
         s3Key: s3Key,
-        url: url,
+        url: proxyUrl,
         scale: 1,
         rotation: 0,
         offsetX: 0,
@@ -323,4 +322,43 @@ const updateOrthomosaicAlignment = async (req, res) => {
   }
 };
 
-module.exports = { uploadFile, getFile, listFiles, deleteFile, uploadOrthomosaic, updateOrthomosaicAlignment };
+/**
+ * GET /api/files/:id/orthomosaic/image
+ * Proxy the orthomosaic image from S3 to the browser, adding CORS headers
+ * so Three.js TextureLoader can load it cross-origin
+ */
+const proxyOrthomosaicImage = async (req, res) => {
+  try {
+    const drawing = await Drawing.findById(req.params.id);
+    if (!drawing || !drawing.orthomosaic?.s3Key) {
+      return res.status(404).json({ error: 'Orthomosaic not found' });
+    }
+
+    const { GetObjectCommand } = require('@aws-sdk/client-s3');
+    const { s3Client } = require('../config/s3');
+
+    const command = new GetObjectCommand({
+      Bucket: process.env.S3_BUCKET_NAME,
+      Key: drawing.orthomosaic.s3Key,
+    });
+
+    const s3Response = await s3Client.send(command);
+
+    // Set CORS and caching headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+    
+    // Detect content type from key extension
+    const key = drawing.orthomosaic.s3Key.toLowerCase();
+    const ext = key.split('.').pop();
+    const mimeMap = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff' };
+    res.setHeader('Content-Type', mimeMap[ext] || 'image/jpeg');
+
+    s3Response.Body.pipe(res);
+  } catch (error) {
+    console.error('Orthomosaic proxy error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+module.exports = { uploadFile, getFile, listFiles, deleteFile, uploadOrthomosaic, updateOrthomosaicAlignment, proxyOrthomosaicImage };

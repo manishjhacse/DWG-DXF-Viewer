@@ -49,8 +49,8 @@ export default function OrthomosaicControls({
               <p style={{ color: 'var(--text-secondary)', marginBottom: '15px', fontSize: '13px' }}>
                 Upload a high-resolution orthomosaic image (JPG, PNG) to use as a background map.
               </p>
-              <label className="btn-primary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                {isUploading ? "Uploading..." : "Upload Image"}
+              <label className="btn-primary" style={{ cursor: isUploading ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px', opacity: isUploading ? 0.7 : 1 }}>
+                {isUploading ? "Converting & Uploading..." : "Upload Image"}
                 <input
                   type="file"
                   accept=".png,.jpeg,.jpg,.webp,.ecw,.eww,.prj"

@@ -64,6 +64,7 @@ export default function DrawingCanvas({
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setClearColor(0x000000, 0); // transparent clear
     renderer.domElement.style.display = "block";
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
@@ -133,7 +134,12 @@ export default function DrawingCanvas({
 
     const scene = sceneRef.current;
     const group = entityGroupRef.current;
-    scene.background = new THREE.Color(bgColor === "light" ? 0xf5f5f5 : 0x0a0a0f);
+    // In orthomosaic mode, clear solid background so the image plane is visible
+    if (orthomosaic?.url) {
+      scene.background = null;
+    } else {
+      scene.background = new THREE.Color(bgColor === "light" ? 0xf5f5f5 : 0x0a0a0f);
+    }
 
     // Clear existing
     while (group.children.length > 0) {
@@ -283,7 +289,7 @@ export default function DrawingCanvas({
       lineSegments.userData.entityMap = cg.entityMap;
       group.add(lineSegments);
     });
-  }, [parsedData, visibleLayers, bgColor, showLabels, selectedEntity]);
+  }, [parsedData, visibleLayers, bgColor, showLabels, selectedEntity, orthomosaic]);
 
   // Handle External Zoom Prop
   useEffect(() => {
@@ -313,43 +319,65 @@ export default function DrawingCanvas({
       return;
     }
 
-    if (!orthomosaicMeshRef.current) {
+    const loadTexture = (url) => {
+      // Clean up old mesh first
+      if (orthomosaicMeshRef.current) {
+        sceneRef.current.remove(orthomosaicMeshRef.current);
+        orthomosaicMeshRef.current.geometry.dispose();
+        if (orthomosaicMeshRef.current.material.map) orthomosaicMeshRef.current.material.map.dispose();
+        orthomosaicMeshRef.current.material.dispose();
+        orthomosaicMeshRef.current = null;
+      }
+
       const loader = new THREE.TextureLoader();
-      loader.load(orthomosaic.url, (texture) => {
+      loader.crossOrigin = 'anonymous';
+      loader.load(url, (texture) => {
         if (!sceneRef.current) return;
         const imgWidth = texture.image.width;
         const imgHeight = texture.image.height;
-        
+
         const geometry = new THREE.PlaneGeometry(imgWidth, imgHeight);
-        const material = new THREE.MeshBasicMaterial({ 
-          map: texture, 
+        const material = new THREE.MeshBasicMaterial({
+          map: texture,
           side: THREE.DoubleSide,
-          depthWrite: false
+          depthTest: false,
+          depthWrite: false,
+          transparent: false,
         });
-        
+
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.z = -100; // Place behind drawings
-        
-        // Apply transforms
+        mesh.renderOrder = -1; // Render before everything else
+        mesh.position.set(
+          orthomosaic.offsetX || 0,
+          orthomosaic.offsetY || 0,
+          -500 // Well behind CAD entities (camera is at z=1000, near=0.1)
+        );
+        mesh.scale.set(orthomosaic.scale || 1, orthomosaic.scale || 1, 1);
+        mesh.rotation.z = -(orthomosaic.rotation || 0) * (Math.PI / 180);
+
+        sceneRef.current.add(mesh);
+        orthomosaicMeshRef.current = mesh;
+      }, undefined, (err) => {
+        console.error("Error loading orthomosaic texture:", err);
+      });
+    };
+
+    if (!orthomosaicMeshRef.current) {
+      loadTexture(orthomosaic.url);
+    } else {
+      // Check if URL changed (replacement upload)
+      if (orthomosaicMeshRef.current.userData.url !== orthomosaic.url) {
+        loadTexture(orthomosaic.url);
+      } else {
+        // Update transforms only
+        const mesh = orthomosaicMeshRef.current;
         mesh.scale.set(orthomosaic.scale || 1, orthomosaic.scale || 1, 1);
         mesh.rotation.z = -(orthomosaic.rotation || 0) * (Math.PI / 180);
         mesh.position.x = orthomosaic.offsetX || 0;
         mesh.position.y = orthomosaic.offsetY || 0;
-        
-        sceneRef.current.add(mesh);
-        orthomosaicMeshRef.current = mesh;
-      }, undefined, (err) => {
-        console.error("Error loading orthomosaic texture", err);
-      });
-    } else {
-      // Update existing transforms
-      const mesh = orthomosaicMeshRef.current;
-      mesh.scale.set(orthomosaic.scale || 1, orthomosaic.scale || 1, 1);
-      mesh.rotation.z = -(orthomosaic.rotation || 0) * (Math.PI / 180);
-      mesh.position.x = orthomosaic.offsetX || 0;
-      mesh.position.y = orthomosaic.offsetY || 0;
+      }
     }
-  }, [orthomosaic?.url, orthomosaic?.scale, orthomosaic?.rotation, orthomosaic?.offsetX, orthomosaic?.offsetY]);
+  }, [orthomosaic?.url, orthomosaic?.scale, orthomosaic?.rotation, orthomosaic?.offsetX, orthomosaic?.offsetY, orthomosaic]);
 
   // Interaction logic
   useEffect(() => {
