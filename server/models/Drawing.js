@@ -51,6 +51,14 @@ const drawingSchema = new mongoose.Schema({
       northDirection: { type: Number },
     },
   },
+  orthomosaic: {
+    s3Key: { type: String, default: null },
+    url: { type: String, default: null },
+    scale: { type: Number, default: 1 },
+    rotation: { type: Number, default: 0 },
+    offsetX: { type: Number, default: 0 },
+    offsetY: { type: Number, default: 0 },
+  },
 }, {
   timestamps: true,
 });

@@ -7,6 +7,7 @@ import LayerPanel from "../../components/LayerPanel";
 import Toolbar from "../../components/Toolbar";
 import EntityInspector from "../../components/EntityInspector";
 import MapPlacementControls from "../../components/MapPlacementControls";
+import OrthomosaicControls from "../../components/OrthomosaicControls";
 
 // Dynamic imports to avoid SSR issues
 const DrawingCanvas = dynamic(() => import("../../components/DrawingCanvas"), { ssr: false });
@@ -28,12 +29,16 @@ export default function ViewerPage() {
   const canvasKeyRef = useRef(0);
 
   // Map placement state
-  const [viewMode, setViewMode] = useState("2d"); // "2d" | "map"
+  const [viewMode, setViewMode] = useState("2d"); // "2d" | "map" | "orthomosaic"
   const [anchorLat, setAnchorLat] = useState(null);
   const [anchorLng, setAnchorLng] = useState(null);
   const [mapRotation, setMapRotation] = useState(0);
   const [mapScale, setMapScale] = useState(1);
   const [mapKey, setMapKey] = useState(0); // Force re-render on mode switch
+
+  // Orthomosaic state
+  const [orthomosaicState, setOrthomosaicState] = useState(null);
+  const [isUploadingOrthomosaic, setIsUploadingOrthomosaic] = useState(false);
 
   useEffect(() => {
     const fetchDrawing = async () => {
@@ -51,11 +56,10 @@ export default function ViewerPage() {
         if (d.metadata?.geolocation) {
           setAnchorLat(d.metadata.geolocation.latitude);
           setAnchorLng(d.metadata.geolocation.longitude);
-          if (d.metadata.geolocation.northDirection) {
-             // Convert north direction to rotation angle if needed
-             // DWG north direction is usually a Y vector, but we can just map it or start with 0
-             // We'll leave mapRotation as 0 unless we calculate true angle
-          }
+        }
+
+        if (d.orthomosaic) {
+          setOrthomosaicState(d.orthomosaic);
         }
       } catch (err) {
         setError(err.response?.data?.error || "Failed to load drawing");
@@ -97,13 +101,47 @@ export default function ViewerPage() {
   // Map controls
   const handleToggleMapView = useCallback(() => {
     setViewMode(prev => {
-      if (prev === "2d") {
+      // Toggle logic: 2d -> orthomosaic -> map -> 2d
+      if (prev === "2d") return "orthomosaic";
+      if (prev === "orthomosaic") {
         setMapKey(k => k + 1);
         return "map";
       }
       return "2d";
     });
   }, []);
+
+  const handleUploadOrthomosaic = async (filesToUpload) => {
+    setIsUploadingOrthomosaic(true);
+    const formData = new FormData();
+    if (Array.isArray(filesToUpload)) {
+      filesToUpload.forEach(f => formData.append("files", f));
+    } else {
+      formData.append("files", filesToUpload);
+    }
+    try {
+      const res = await axios.post(`${API}/api/files/${drawing._id}/orthomosaic`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      setOrthomosaicState(res.data.orthomosaic);
+    } catch (err) {
+      console.error("Upload failed", err);
+      alert(err.response?.data?.error || "Failed to upload orthomosaic.");
+    } finally {
+      setIsUploadingOrthomosaic(false);
+    }
+  };
+
+  const handleUpdateOrthomosaicAlignment = async (updates) => {
+    const newState = { ...orthomosaicState, ...updates };
+    setOrthomosaicState(newState); // Optimistic update
+    
+    try {
+      await axios.put(`${API}/api/files/${drawing._id}/orthomosaic/align`, updates);
+    } catch (err) {
+      console.error("Failed to save alignment", err);
+    }
+  };
 
   const handleAnchorChange = useCallback((lat, lng) => {
     setAnchorLat(lat);
@@ -224,6 +262,19 @@ export default function ViewerPage() {
               </div>
             </div>
           )}
+          {viewMode === "orthomosaic" && (
+            <div className="viewer-sidebar-section">
+              <h3>View Mode</h3>
+              <div className="view-mode-indicator map-mode">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+                Orthomosaic Mode
+              </div>
+            </div>
+          )}
 
           {/* Layers */}
           <LayerPanel
@@ -243,7 +294,7 @@ export default function ViewerPage() {
       </div>
 
       {/* Canvas / Map Area */}
-      {viewMode === "2d" ? (
+      {viewMode === "2d" || viewMode === "orthomosaic" ? (
         <div className={`viewer-canvas ${bgColor === "light" ? "light-bg" : "dark-bg"}`}>
           <DrawingCanvas
             key={canvasKeyRef.current}
@@ -255,12 +306,23 @@ export default function ViewerPage() {
             selectedEntity={selectedEntity}
             zoom={zoom}
             onZoomChange={setZoom}
+            orthomosaic={viewMode === "orthomosaic" ? orthomosaicState : null}
           />
           
           {selectedEntity && (
             <EntityInspector 
               entity={selectedEntity} 
               onClose={() => setSelectedEntity(null)} 
+            />
+          )}
+
+          {viewMode === "orthomosaic" && (
+            <OrthomosaicControls
+              orthomosaic={orthomosaicState}
+              onUpload={handleUploadOrthomosaic}
+              onUpdateAlignment={handleUpdateOrthomosaicAlignment}
+              isUploading={isUploadingOrthomosaic}
+              onToggleView={() => setViewMode("2d")}
             />
           )}
         </div>

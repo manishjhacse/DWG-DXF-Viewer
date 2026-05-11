@@ -196,5 +196,131 @@ const deleteFile = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+/**
+ * POST /api/files/:id/orthomosaic
+ * Upload an orthomosaic image for a drawing
+ */
+const uploadOrthomosaic = async (req, res) => {
+  try {
+    const drawing = await Drawing.findById(req.params.id);
+    if (!drawing) {
+      // If we used diskStorage, clean up the file
+      if (req.file && req.file.path) fs.unlinkSync(req.file.path);
+      return res.status(404).json({ error: 'Drawing not found' });
+    }
 
-module.exports = { uploadFile, getFile, listFiles, deleteFile };
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No image file uploaded' });
+    }
+
+    // Find the main image file
+    let mainFile = req.files.find(f => {
+      const ext = (f.originalname || '').split('.').pop().toLowerCase();
+      return ['ecw', 'png', 'jpg', 'jpeg', 'tif', 'tiff', 'webp'].includes(ext);
+    });
+
+    if (!mainFile) {
+      req.files.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
+      return res.status(400).json({ error: 'No valid main image file found in the upload' });
+    }
+
+    const ext = mainFile.originalname.split('.').pop().toLowerCase();
+    let tempPath = mainFile.path;
+    let mimetype = mainFile.mimetype;
+    let s3KeyOriginalName = mainFile.originalname;
+
+    if (ext === 'ecw') {
+      try {
+        const outPath = tempPath + '.jpg';
+        await new Promise((resolve, reject) => {
+          require('child_process').exec(`gdal_translate -of JPEG "${tempPath}" "${outPath}"`, (err, stdout, stderr) => {
+            if (err) {
+              console.error("GDAL Error:", stderr);
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
+        });
+        tempPath = outPath;
+        mimetype = 'image/jpeg';
+        s3KeyOriginalName = mainFile.originalname.replace(/\.ecw$/i, '.jpg');
+      } catch (e) {
+        req.files.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
+        return res.status(500).json({ error: 'Failed to convert ECW file. Please ensure GDAL is installed with ECW support.' });
+      }
+    }
+
+    // Upload to S3
+    const s3Key = `drawings/orthomosaic/${drawing._id}/${Date.now()}-${s3KeyOriginalName}`;
+    try {
+      const fileStream = fs.createReadStream(tempPath);
+      await uploadToS3(fileStream, s3Key, mimetype);
+      
+      const bucketName = process.env.S3_BUCKET_NAME;
+      const region = process.env.AWS_REGION || 'us-east-1';
+      const url = `https://${bucketName}.s3.${region}.amazonaws.com/${s3Key}`;
+
+      drawing.orthomosaic = {
+        s3Key: s3Key,
+        url: url,
+        scale: 1,
+        rotation: 0,
+        offsetX: 0,
+        offsetY: 0
+      };
+
+      await drawing.save();
+
+      // Clean up temp files
+      req.files.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
+      if (ext === 'ecw' && fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+
+      res.status(200).json({
+        message: 'Orthomosaic uploaded successfully',
+        orthomosaic: drawing.orthomosaic
+      });
+    } catch (s3Err) {
+      req.files.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
+      if (ext === 'ecw' && fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+      console.error('S3 upload failed:', s3Err);
+      res.status(500).json({ error: 'Failed to upload orthomosaic to S3' });
+    }
+  } catch (error) {
+    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    console.error('Upload error:', error);
+    res.status(500).json({ error: error.message || 'Orthomosaic upload failed' });
+  }
+};
+
+/**
+ * PUT /api/files/:id/orthomosaic/align
+ * Update alignment metadata
+ */
+const updateOrthomosaicAlignment = async (req, res) => {
+  try {
+    const drawing = await Drawing.findById(req.params.id);
+    if (!drawing) {
+      return res.status(404).json({ error: 'Drawing not found' });
+    }
+
+    const { scale, rotation, offsetX, offsetY } = req.body;
+    
+    if (drawing.orthomosaic) {
+      if (scale !== undefined) drawing.orthomosaic.scale = scale;
+      if (rotation !== undefined) drawing.orthomosaic.rotation = rotation;
+      if (offsetX !== undefined) drawing.orthomosaic.offsetX = offsetX;
+      if (offsetY !== undefined) drawing.orthomosaic.offsetY = offsetY;
+      
+      await drawing.save();
+    }
+
+    res.json({ message: 'Alignment updated', orthomosaic: drawing.orthomosaic });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+module.exports = { uploadFile, getFile, listFiles, deleteFile, uploadOrthomosaic, updateOrthomosaicAlignment };
