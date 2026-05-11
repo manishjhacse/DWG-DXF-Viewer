@@ -495,16 +495,36 @@ export default function DrawingCanvas({
             depthWrite: false,
           });
 
+          // Calculate drawing center and auto-scale so the image covers the drawing area
+          const bounds = parsedData?.bounds;
+          const drawingCenterX = bounds ? (bounds.minX + bounds.maxX) / 2 : 0;
+          const drawingCenterY = bounds ? (bounds.minY + bounds.maxY) / 2 : 0;
+          const drawingWidth = bounds ? Math.abs(bounds.maxX - bounds.minX) || 100 : 100;
+          const drawingHeight = bounds ? Math.abs(bounds.maxY - bounds.minY) || 100 : 100;
+
+          // Auto-scale: fit image to cover drawing bounds
+          const scaleX = drawingWidth / img.width;
+          const scaleY = drawingHeight / img.height;
+          const baseScale = Math.max(scaleX, scaleY) * 1.1; // 10% padding to ensure full coverage
+
           const mesh = new THREE.Mesh(geometry, material);
           mesh.renderOrder = -1;
+
+          // Position at drawing center + user offset
+          const userScale = orthomosaic.scale || 1;
           mesh.position.set(
-            orthomosaic.offsetX || 0,
-            orthomosaic.offsetY || 0,
+            drawingCenterX + (orthomosaic.offsetX || 0),
+            drawingCenterY + (orthomosaic.offsetY || 0),
             -500
           );
-          mesh.scale.set(orthomosaic.scale || 1, orthomosaic.scale || 1, 1);
+          mesh.scale.set(baseScale * userScale, baseScale * userScale, 1);
           mesh.rotation.z = -(orthomosaic.rotation || 0) * (Math.PI / 180);
           mesh.userData.loadedUrl = orthomosaic.url;
+          mesh.userData.baseScale = baseScale;
+          mesh.userData.drawingCenterX = drawingCenterX;
+          mesh.userData.drawingCenterY = drawingCenterY;
+
+          console.log(`[Orthomosaic] Mesh positioned at drawing center (${drawingCenterX.toFixed(1)}, ${drawingCenterY.toFixed(1)}), baseScale=${baseScale.toFixed(4)}, imgSize=${img.width}x${img.height}, drawingSize=${drawingWidth.toFixed(1)}x${drawingHeight.toFixed(1)}`);
 
           sceneRef.current.add(mesh);
           orthomosaicMeshRef.current = mesh;
@@ -530,10 +550,14 @@ export default function DrawingCanvas({
   useEffect(() => {
     if (!orthomosaicMeshRef.current || !orthomosaic) return;
     const mesh = orthomosaicMeshRef.current;
-    mesh.scale.set(orthomosaic.scale || 1, orthomosaic.scale || 1, 1);
+    const baseScale = mesh.userData.baseScale || 1;
+    const centerX = mesh.userData.drawingCenterX || 0;
+    const centerY = mesh.userData.drawingCenterY || 0;
+    const userScale = orthomosaic.scale || 1;
+    mesh.scale.set(baseScale * userScale, baseScale * userScale, 1);
     mesh.rotation.z = -(orthomosaic.rotation || 0) * (Math.PI / 180);
-    mesh.position.x = orthomosaic.offsetX || 0;
-    mesh.position.y = orthomosaic.offsetY || 0;
+    mesh.position.x = centerX + (orthomosaic.offsetX || 0);
+    mesh.position.y = centerY + (orthomosaic.offsetY || 0);
   }, [orthomosaic?.scale, orthomosaic?.rotation, orthomosaic?.offsetX, orthomosaic?.offsetY]);
 
   // Interaction logic
