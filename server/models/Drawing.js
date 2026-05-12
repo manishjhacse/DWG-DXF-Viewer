@@ -59,6 +59,13 @@ const drawingSchema = new mongoose.Schema({
     offsetX: { type: Number, default: 0 },
     offsetY: { type: Number, default: 0 },
   },
+  // User-saved map placement (persists anchor lat/lng for future sessions)
+  mapPlacement: {
+    anchorLat: { type: Number, default: null },
+    anchorLng: { type: Number, default: null },
+    rotation: { type: Number, default: 0 },
+    scale: { type: Number, default: 1 },
+  },
 }, {
   timestamps: true,
 });

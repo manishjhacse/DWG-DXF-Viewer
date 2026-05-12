@@ -11,6 +11,7 @@ export default function MapPlacementControls({
   onBackTo2D,
   onSearchPlace,
   onAnchorChange,
+  onSavePlacement,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -279,13 +280,25 @@ export default function MapPlacementControls({
           {/* Actions */}
           <div className="map-controls-actions">
             {hasPlacement && (
-              <button className="map-btn map-btn-secondary" onClick={onResetPosition}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                  <polyline points="1 4 1 10 7 10"/>
-                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
-                </svg>
-                Reset Position
-              </button>
+              <>
+                <button className="map-btn map-btn-secondary" onClick={onResetPosition}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                    <polyline points="1 4 1 10 7 10"/>
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                  </svg>
+                  Reset Position
+                </button>
+                {onSavePlacement && (
+                  <button className="map-btn map-btn-primary" onClick={onSavePlacement} style={{ background: 'var(--success)', borderColor: 'var(--success)' }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                      <polyline points="17 21 17 13 7 13 7 21"/>
+                      <polyline points="7 3 7 8 15 8"/>
+                    </svg>
+                    Save Position
+                  </button>
+                )}
+              </>
             )}
             <button className="map-btn map-btn-primary" onClick={onBackTo2D}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">

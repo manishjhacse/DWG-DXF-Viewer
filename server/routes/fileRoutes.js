@@ -10,7 +10,8 @@ const {
   deleteFile,
   uploadOrthomosaic,
   updateOrthomosaicAlignment,
-  proxyOrthomosaicImage
+  proxyOrthomosaicImage,
+  saveMapPlacement
 } = require('../controllers/fileController');
 
 // Upload a file
@@ -34,4 +35,8 @@ router.get('/:id/orthomosaic/image', asyncHandler(proxyOrthomosaicImage));
 // Update orthomosaic alignment
 router.put('/:id/orthomosaic/align', express.json(), asyncHandler(updateOrthomosaicAlignment));
 
+// Save map placement (anchor lat/lng, rotation, scale)
+router.put('/:id/map-placement', express.json(), asyncHandler(saveMapPlacement));
+
 module.exports = router;
+

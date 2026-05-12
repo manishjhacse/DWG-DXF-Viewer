@@ -52,8 +52,13 @@ export default function ViewerPage() {
           setVisibleLayers(new Set(d.parsedData.layers.map(l => l.name)));
         }
 
-        // Initialize map placement if geolocation metadata exists
-        if (d.metadata?.geolocation) {
+        // Priority: saved mapPlacement > auto-extracted geolocation
+        if (d.mapPlacement?.anchorLat != null && d.mapPlacement?.anchorLng != null) {
+          setAnchorLat(d.mapPlacement.anchorLat);
+          setAnchorLng(d.mapPlacement.anchorLng);
+          setMapRotation(d.mapPlacement.rotation || 0);
+          setMapScale(d.mapPlacement.scale || 1);
+        } else if (d.metadata?.geolocation) {
           setAnchorLat(d.metadata.geolocation.latitude);
           setAnchorLng(d.metadata.geolocation.longitude);
         }
@@ -166,6 +171,23 @@ export default function ViewerPage() {
     setAnchorLng(lng);
   }, []);
 
+  // Save current map placement to the database for persistence
+  const handleSaveMapPlacement = useCallback(async () => {
+    if (!drawing?._id) return;
+    try {
+      await axios.put(`${API}/api/files/${drawing._id}/map-placement`, {
+        anchorLat,
+        anchorLng,
+        rotation: mapRotation,
+        scale: mapScale,
+      });
+      alert('Map placement saved! It will auto-load next time you open this drawing.');
+    } catch (err) {
+      console.error('Failed to save map placement:', err);
+      alert('Failed to save map placement.');
+    }
+  }, [drawing, anchorLat, anchorLng, mapRotation, mapScale]);
+
   if (loading) {
     return (
       <div className="viewer-container">
@@ -249,6 +271,30 @@ export default function ViewerPage() {
               </div>
             </div>
           </div>
+
+          {/* Geolocation Info — show when available */}
+          {(metadata?.geolocation || drawing?.mapPlacement?.anchorLat != null) && (
+            <div className="viewer-sidebar-section">
+              <h3>Geolocation</h3>
+              <div className="info-grid">
+                <div className="info-item">
+                  <div className="info-item-label">Latitude</div>
+                  <div className="info-item-value">
+                    {(drawing?.mapPlacement?.anchorLat ?? metadata?.geolocation?.latitude)?.toFixed(6) || '—'}
+                  </div>
+                </div>
+                <div className="info-item">
+                  <div className="info-item-label">Longitude</div>
+                  <div className="info-item-value">
+                    {(drawing?.mapPlacement?.anchorLng ?? metadata?.geolocation?.longitude)?.toFixed(6) || '—'}
+                  </div>
+                </div>
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '8px' }}>
+                {drawing?.mapPlacement?.anchorLat != null ? '📌 Saved placement' : '🌍 Auto-detected from DWG'}
+              </div>
+            </div>
+          )}
 
           {/* View Mode Indicator */}
           {viewMode === "map" && (
@@ -352,6 +398,7 @@ export default function ViewerPage() {
             onBackTo2D={handleBackTo2D}
             onSearchPlace={handleSearchPlace}
             onAnchorChange={handleAnchorChange}
+            onSavePlacement={handleSaveMapPlacement}
           />
         </div>
       )}

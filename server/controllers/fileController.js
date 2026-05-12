@@ -360,5 +360,31 @@ const proxyOrthomosaicImage = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+/**
+ * PUT /api/files/:id/map-placement
+ * Save the user's map placement (anchor coordinates, rotation, scale)
+ */
+const saveMapPlacement = async (req, res) => {
+  try {
+    const drawing = await Drawing.findById(req.params.id);
+    if (!drawing) {
+      return res.status(404).json({ error: 'Drawing not found' });
+    }
 
-module.exports = { uploadFile, getFile, listFiles, deleteFile, uploadOrthomosaic, updateOrthomosaicAlignment, proxyOrthomosaicImage };
+    const { anchorLat, anchorLng, rotation, scale } = req.body;
+
+    drawing.mapPlacement = {
+      anchorLat: anchorLat ?? null,
+      anchorLng: anchorLng ?? null,
+      rotation: rotation ?? 0,
+      scale: scale ?? 1,
+    };
+
+    await drawing.save();
+    res.json({ message: 'Map placement saved', mapPlacement: drawing.mapPlacement });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+module.exports = { uploadFile, getFile, listFiles, deleteFile, uploadOrthomosaic, updateOrthomosaicAlignment, proxyOrthomosaicImage, saveMapPlacement };

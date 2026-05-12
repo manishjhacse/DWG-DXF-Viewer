@@ -136,23 +136,69 @@ const parseDwgFile = async (fileBuffer) => {
     maxY: isFinite(maxY) ? maxY : 100,
   };
 
-  // Attempt to extract GEODATA (geolocation)
+  // Attempt to extract GEODATA (geolocation) — uses multiple strategies
   let geolocation = null;
   const objList = Array.isArray(db.objects) ? db.objects : (db.objects ? Object.values(db.objects) : []);
   const entList = Array.isArray(db.entities) ? db.entities : (db.entities ? Object.values(db.entities) : []);
   const allObjects = objList.concat(entList);
-  
-  const geoObj = allObjects.find(o => o && (o.type === 'GEODATA' || o.objectType === 'GEODATA'));
-  
+
+  // Log all object types for debugging
+  const objTypes = new Set();
+  allObjects.forEach(o => { if (o && (o.type || o.objectType)) objTypes.add(o.type || o.objectType); });
+  if (objTypes.size > 0) {
+    console.log(`ℹ️ DWG object types found: ${[...objTypes].join(', ')}`);
+  }
+
+  // Strategy 1: Look for GEODATA object (multiple type name variants)
+  const geoObj = allObjects.find(o => o && (
+    o.type === 'GEODATA' || o.objectType === 'GEODATA' ||
+    o.type === 'AcDbGeoData' || o.objectType === 'AcDbGeoData' ||
+    o.type === 'ACDB_GEODATA' || o.objectType === 'ACDB_GEODATA'
+  ));
+
   if (geoObj) {
-    if (geoObj.latitude !== undefined && geoObj.longitude !== undefined) {
+    // Log the full object so we can see actual property names
+    const preview = JSON.stringify(geoObj, null, 2);
+    console.log('🌍 Found GEODATA object:', preview.substring(0, 800));
+
+    // Try multiple property name patterns used by different LibreDWG versions:
+    // - geoObj.latitude / geoObj.longitude (direct)
+    // - geoObj.ref_pt.y (lat) / geoObj.ref_pt.x (lng) — LibreDWG C struct mapping
+    // - geoObj.refPoint / geoObj.referencePoint variants
+    // - DXF group code 40 = lat, 41 = lng
+    const lat = geoObj.latitude ?? geoObj.lat
+      ?? geoObj.ref_pt?.y ?? geoObj.refPoint?.y ?? geoObj.referencePoint?.y
+      ?? geoObj.design_pt?.y ?? geoObj.designPoint?.y
+      ?? (geoObj['40'] !== undefined ? geoObj['40'] : undefined);
+    const lng = geoObj.longitude ?? geoObj.lng ?? geoObj.lon
+      ?? geoObj.ref_pt?.x ?? geoObj.refPoint?.x ?? geoObj.referencePoint?.x
+      ?? geoObj.design_pt?.x ?? geoObj.designPoint?.x
+      ?? (geoObj['41'] !== undefined ? geoObj['41'] : undefined);
+
+    if (lat !== undefined && lng !== undefined && !isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0)) {
       geolocation = {
-        latitude: geoObj.latitude,
-        longitude: geoObj.longitude,
-        northDirection: geoObj.north_direction ? (geoObj.north_direction.y || 0) : 0,
+        latitude: lat,
+        longitude: lng,
+        northDirection: geoObj.north_direction?.y ?? geoObj.northDirection ?? geoObj.north_dir?.y ?? 0,
       };
       console.log('✅ Extracted DWG GEODATA:', geolocation);
+    } else {
+      console.log('⚠️ GEODATA object found but lat/lng not recognized. Object keys:', Object.keys(geoObj));
     }
+  }
+
+  // Strategy 2: Check DWG header variables ($LATITUDE, $LONGITUDE)
+  if (!geolocation && db.header) {
+    const headerLat = db.header['$LATITUDE'] ?? db.header.LATITUDE ?? db.header.latitude;
+    const headerLng = db.header['$LONGITUDE'] ?? db.header.LONGITUDE ?? db.header.longitude;
+    if (headerLat !== undefined && headerLng !== undefined && !isNaN(headerLat) && !isNaN(headerLng) && (headerLat !== 0 || headerLng !== 0)) {
+      geolocation = { latitude: headerLat, longitude: headerLng, northDirection: 0 };
+      console.log('✅ Extracted geolocation from DWG header vars:', geolocation);
+    }
+  }
+
+  if (!geolocation) {
+    console.log('ℹ️ No GEODATA or header geolocation found in this DWG file');
   }
 
   return {
