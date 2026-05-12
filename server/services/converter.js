@@ -129,6 +129,53 @@ const parseDwgFile = async (fileBuffer) => {
     return tableEntry || { name, color: 7, visible: true };
   });
 
+  // Extract block definitions for resolving INSERT entities
+  const blocks = {};
+  const noopBounds = () => {}; // don't affect main bounds for block-internal geometry
+
+  // Try multiple locations where blocks might be stored
+  const blockSources = [
+    db.blocks,
+    db.tables?.BLOCK?.entries,
+    db.tables?.BLOCK_RECORD?.entries,
+  ].filter(Boolean);
+
+  for (const source of blockSources) {
+    const blockList = Array.isArray(source) ? source : Object.values(source);
+    for (const block of blockList) {
+      const name = block.name || block.blockName || '';
+      // Skip model/paper space blocks and empty names
+      if (!name || name.startsWith('*') || name === 'Model_Space' || name === 'Paper_Space') continue;
+      if (blocks[name]) continue; // already found
+
+      const blockEntities = block.entities || block.ownedObjects || [];
+      if (blockEntities.length === 0) continue;
+
+      const convertedEntities = [];
+      blockEntities.forEach((ent) => {
+        try {
+          const parsed = convertEntity(ent, noopBounds);
+          if (parsed) convertedEntities.push(parsed);
+        } catch (e) { /* skip bad entity */ }
+      });
+
+      if (convertedEntities.length > 0) {
+        blocks[name] = {
+          name,
+          basePoint: block.basePoint || block.base_pt || { x: 0, y: 0 },
+          entities: convertedEntities,
+        };
+      }
+    }
+  }
+
+  const blockCount = Object.keys(blocks).length;
+  if (blockCount > 0) {
+    console.log(`✅ Extracted ${blockCount} block definitions: ${Object.keys(blocks).slice(0, 10).join(', ')}${blockCount > 10 ? '...' : ''}`);
+  } else {
+    console.log('ℹ️ No block definitions found (INSERT entities will show as markers)');
+  }
+
   const bounds = {
     minX: isFinite(minX) ? minX : 0,
     minY: isFinite(minY) ? minY : 0,
@@ -205,6 +252,7 @@ const parseDwgFile = async (fileBuffer) => {
     entities,
     layers,
     bounds,
+    blocks,
     entityCount: entities.length,
     header: {},
     ...(geolocation && { geolocation }),

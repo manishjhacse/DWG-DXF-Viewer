@@ -367,13 +367,107 @@ export default function DrawingCanvas({
           }
           break;
 
-        // INSERT is a block reference — draw a marker so it's not invisible
+        // INSERT — resolve block geometry and draw actual shapes
         case "INSERT":
           if (entity.position) {
-            const { x, y } = entity.position;
-            const ms = 5;
-            addLineSegment(color, { x: x - ms, y: y - ms }, { x: x + ms, y: y + ms }, entity);
-            addLineSegment(color, { x: x + ms, y: y - ms }, { x: x - ms, y: y + ms }, entity);
+            const blockDef = parsedData.blocks?.[entity.blockName];
+            if (blockDef && blockDef.entities?.length > 0) {
+              // Transform each block entity to the INSERT position/scale/rotation
+              const ix = entity.position.x;
+              const iy = entity.position.y;
+              const sx = entity.scale?.x || 1;
+              const sy = entity.scale?.y || 1;
+              const rot = (entity.rotation || 0) * Math.PI / 180;
+              const cosR = Math.cos(rot);
+              const sinR = Math.sin(rot);
+              const bx = blockDef.basePoint?.x || 0;
+              const by = blockDef.basePoint?.y || 0;
+
+              // Helper: transform a point from block space to world space
+              const txPt = (px, py) => {
+                const lx = (px - bx) * sx;
+                const ly = (py - by) * sy;
+                return {
+                  x: lx * cosR - ly * sinR + ix,
+                  y: lx * sinR + ly * cosR + iy,
+                };
+              };
+
+              blockDef.entities.forEach(bEnt => {
+                switch (bEnt.type) {
+                  case "LINE":
+                    if (bEnt.startPoint && bEnt.endPoint) {
+                      addLineSegment(color, txPt(bEnt.startPoint.x, bEnt.startPoint.y), txPt(bEnt.endPoint.x, bEnt.endPoint.y), entity);
+                    }
+                    break;
+                  case "LWPOLYLINE":
+                  case "POLYLINE":
+                    if (bEnt.vertices?.length > 1) {
+                      for (let i = 0; i < bEnt.vertices.length - 1; i++) {
+                        addLineSegment(color, txPt(bEnt.vertices[i].x, bEnt.vertices[i].y), txPt(bEnt.vertices[i+1].x, bEnt.vertices[i+1].y), entity);
+                      }
+                      if (bEnt.closed) {
+                        addLineSegment(color, txPt(bEnt.vertices[bEnt.vertices.length-1].x, bEnt.vertices[bEnt.vertices.length-1].y), txPt(bEnt.vertices[0].x, bEnt.vertices[0].y), entity);
+                      }
+                    }
+                    break;
+                  case "CIRCLE":
+                    if (bEnt.center) {
+                      const cr = bEnt.radius || 0;
+                      const steps = Math.max(24, Math.ceil(cr * 4));
+                      for (let i = 0; i < steps; i++) {
+                        const a1 = (i / steps) * Math.PI * 2;
+                        const a2 = ((i + 1) / steps) * Math.PI * 2;
+                        addLineSegment(color,
+                          txPt(bEnt.center.x + cr * Math.cos(a1), bEnt.center.y + cr * Math.sin(a1)),
+                          txPt(bEnt.center.x + cr * Math.cos(a2), bEnt.center.y + cr * Math.sin(a2)),
+                          entity);
+                      }
+                    }
+                    break;
+                  case "ARC":
+                    if (bEnt.center) {
+                      const ar = bEnt.radius || 0;
+                      let sA = (bEnt.startAngle || 0) * Math.PI / 180;
+                      let eA = (bEnt.endAngle || 360) * Math.PI / 180;
+                      let sweep = eA - sA;
+                      if (sweep <= 0) sweep += Math.PI * 2;
+                      const arcSteps = Math.max(16, Math.ceil(sweep / (Math.PI / 16)));
+                      for (let i = 0; i < arcSteps; i++) {
+                        const a1 = sA + (i / arcSteps) * sweep;
+                        const a2 = sA + ((i + 1) / arcSteps) * sweep;
+                        addLineSegment(color,
+                          txPt(bEnt.center.x + ar * Math.cos(a1), bEnt.center.y + ar * Math.sin(a1)),
+                          txPt(bEnt.center.x + ar * Math.cos(a2), bEnt.center.y + ar * Math.sin(a2)),
+                          entity);
+                      }
+                    }
+                    break;
+                  case "POINT":
+                    if (bEnt.position) {
+                      const pp = txPt(bEnt.position.x, bEnt.position.y);
+                      const ps = 1;
+                      addLineSegment(color, { x: pp.x - ps, y: pp.y }, { x: pp.x + ps, y: pp.y }, entity);
+                      addLineSegment(color, { x: pp.x, y: pp.y - ps }, { x: pp.x, y: pp.y + ps }, entity);
+                    }
+                    break;
+                  default:
+                    // For other entity types in blocks, draw lines if they have vertices
+                    if (bEnt.vertices?.length > 1) {
+                      for (let i = 0; i < bEnt.vertices.length - 1; i++) {
+                        addLineSegment(color, txPt(bEnt.vertices[i].x, bEnt.vertices[i].y), txPt(bEnt.vertices[i+1].x, bEnt.vertices[i+1].y), entity);
+                      }
+                    }
+                    break;
+                }
+              });
+            } else {
+              // Fallback: small dot if block definition not found
+              const { x, y } = entity.position;
+              const ds = 1.5;
+              addLineSegment(color, { x: x - ds, y }, { x: x + ds, y }, entity);
+              addLineSegment(color, { x, y: y - ds }, { x, y: y + ds }, entity);
+            }
           }
           break;
 
