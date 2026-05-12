@@ -452,10 +452,14 @@ export default function DrawingCanvas({
                     }
                     break;
                   default:
-                    // For other entity types in blocks, draw lines if they have vertices
+                    // For other entity types in blocks (like 3DFACE, SOLID), draw lines if they have vertices
                     if (bEnt.vertices?.length > 1) {
                       for (let i = 0; i < bEnt.vertices.length - 1; i++) {
                         addLineSegment(color, txPt(bEnt.vertices[i].x, bEnt.vertices[i].y), txPt(bEnt.vertices[i+1].x, bEnt.vertices[i+1].y), entity);
+                      }
+                      // Close the shape for faces/solids
+                      if (bEnt.type === '3DFACE' || bEnt.type === 'SOLID' || bEnt.type === 'TRACE' || bEnt.closed) {
+                         addLineSegment(color, txPt(bEnt.vertices[bEnt.vertices.length-1].x, bEnt.vertices[bEnt.vertices.length-1].y), txPt(bEnt.vertices[0].x, bEnt.vertices[0].y), entity);
                       }
                     }
                     break;
