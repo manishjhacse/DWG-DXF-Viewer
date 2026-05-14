@@ -419,31 +419,6 @@ export default function DrawingCanvas({
 
     // Kick off rendering for all root entities
     (parsedData.entities || []).forEach(entity => processEntity(entity));
-            } else {
-              // Fallback: small dot if block definition not found
-              const { x, y } = entity.position;
-              const ds = 1.5;
-              addLineSegment(color, { x: x - ds, y }, { x: x + ds, y }, entity);
-              addLineSegment(color, { x, y: y - ds }, { x, y: y + ds }, entity);
-            }
-          }
-          break;
-
-        // DIMENSION — draw a small marker at the anchor point
-        case "DIMENSION":
-          if (entity.anchorPoint) {
-            const { x, y } = entity.anchorPoint;
-            const ds = 3;
-            addLineSegment(color, { x: x - ds, y }, { x: x + ds, y }, entity);
-            addLineSegment(color, { x, y: y - ds }, { x, y: y + ds }, entity);
-          }
-          break;
-
-        default:
-          // Unhandled types — silently skip but could log for debugging
-          break;
-      }
-    });
 
     // Create Batched LineSegments
     Object.keys(colorGroups).forEach(hexColor => {
