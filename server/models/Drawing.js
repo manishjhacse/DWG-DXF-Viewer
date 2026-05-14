@@ -49,6 +49,16 @@ const drawingSchema = new mongoose.Schema({
       latitude: { type: Number },
       longitude: { type: Number },
       northDirection: { type: Number },
+      coordinateSystem: { type: String, default: null },
+      designPoint: {
+        x: { type: Number },
+        y: { type: Number },
+      },
+      referencePoint: {
+        x: { type: Number },
+        y: { type: Number },
+      },
+      source: { type: String, default: null }, // 'GEODATA' | 'HEADER_VARS' | 'DXF_GEODATA'
     },
   },
   orthomosaic: {

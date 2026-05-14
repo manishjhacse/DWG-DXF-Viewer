@@ -291,7 +291,15 @@ export default function ViewerPage() {
                 </div>
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '8px' }}>
-                {drawing?.mapPlacement?.anchorLat != null ? '📌 Saved placement' : '🌍 Auto-detected from DWG'}
+                {drawing?.mapPlacement?.anchorLat != null
+                  ? '📌 Saved placement'
+                  : metadata?.geolocation?.source === 'GEODATA'
+                    ? '🌍 Extracted from GEODATA object'
+                    : metadata?.geolocation?.source === 'HEADER_VARS'
+                      ? '🌍 Extracted from DWG header ($LATITUDE/$LONGITUDE)'
+                      : metadata?.geolocation?.source === 'DXF_GEODATA'
+                        ? '🌍 Extracted from DXF GEODATA'
+                        : '🌍 Auto-detected from file'}
               </div>
             </div>
           )}

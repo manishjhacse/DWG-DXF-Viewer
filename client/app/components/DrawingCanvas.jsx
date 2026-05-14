@@ -185,21 +185,25 @@ export default function DrawingCanvas({
       cg.entityMap[idx + 1] = entity;
     };
 
-    (parsedData.entities || []).forEach((entity) => {
-      if (visibleLayers && !visibleLayers.has(entity.layer)) return;
+    const processEntity = (entity, transform = null, isRootSelected = false) => {
+      // Only check layer visibility for root entities (transform is null)
+      if (!transform && visibleLayers && !visibleLayers.has(entity.layer)) return;
       
       const hexColor = getColorForEntity(entity, layerMap);
-      const isSelected = selectedEntity && 
+      const isSelected = isRootSelected || (selectedEntity && 
                         selectedEntity.type === entity.type && 
                         selectedEntity.layer === entity.layer && 
-                        JSON.stringify(entity.position || entity.startPoint) === JSON.stringify(selectedEntity.position || selectedEntity.startPoint);
+                        JSON.stringify(entity.position || entity.startPoint) === JSON.stringify(selectedEntity.position || selectedEntity.startPoint));
 
       const color = isSelected ? "#ffffff" : hexColor;
+      
+      // Coordinate transformer (identity function for root entities)
+      const tx = transform || ((x, y) => ({ x, y }));
 
       switch (entity.type) {
         case "LINE":
           if (entity.startPoint && entity.endPoint) {
-            addLineSegment(color, entity.startPoint, entity.endPoint, entity);
+            addLineSegment(color, tx(entity.startPoint.x, entity.startPoint.y), tx(entity.endPoint.x, entity.endPoint.y), entity);
           }
           break;
 
@@ -213,7 +217,7 @@ export default function DrawingCanvas({
               const bulge = v0.bulge || 0;
               if (Math.abs(bulge) < 1e-9) {
                 // Straight segment
-                addLineSegment(color, v0, v1, entity);
+                addLineSegment(color, tx(v0.x, v0.y), tx(v1.x, v1.y), entity);
               } else {
                 // Arc segment from bulge
                 const dx = v1.x - v0.x;
@@ -232,16 +236,15 @@ export default function DrawingCanvas({
                 const cy = midY + sign * d * ny;
                 const startAng = Math.atan2(v0.y - cy, v0.x - cx);
                 const endAng = Math.atan2(v1.y - cy, v1.x - cx);
-                const curve = new THREE.EllipseCurve(cx, cy, r, r,
-                  startAng, endAng, bulge < 0);
+                const curve = new THREE.EllipseCurve(cx, cy, r, r, startAng, endAng, bulge < 0);
                 const bPts = curve.getPoints(Math.max(8, Math.ceil(a / (Math.PI / 16))));
                 for (let j = 0; j < bPts.length - 1; j++) {
-                  addLineSegment(color, bPts[j], bPts[j + 1], entity);
+                  addLineSegment(color, tx(bPts[j].x, bPts[j].y), tx(bPts[j + 1].x, bPts[j + 1].y), entity);
                 }
               }
             }
             if (entity.closed && verts.length > 1) {
-              addLineSegment(color, verts[verts.length - 1], verts[0], entity);
+              addLineSegment(color, tx(verts[verts.length - 1].x, verts[verts.length - 1].y), tx(verts[0].x, verts[0].y), entity);
             }
           }
           break;
@@ -255,9 +258,8 @@ export default function DrawingCanvas({
               0, Math.PI * 2
             );
             const pts = curve.getPoints(72);
-            for (let i = 0; i < pts.length - 1; i++) addLineSegment(color, pts[i], pts[i + 1], entity);
-            // Close the circle
-            addLineSegment(color, pts[pts.length - 1], pts[0], entity);
+            for (let i = 0; i < pts.length - 1; i++) addLineSegment(color, tx(pts[i].x, pts[i].y), tx(pts[i + 1].x, pts[i + 1].y), entity);
+            addLineSegment(color, tx(pts[pts.length - 1].x, pts[pts.length - 1].y), tx(pts[0].x, pts[0].y), entity);
           }
           break;
 
@@ -265,14 +267,13 @@ export default function DrawingCanvas({
           if (entity.center) {
             let sA = (entity.startAngle || 0) * Math.PI / 180;
             let eA = (entity.endAngle || 360) * Math.PI / 180;
-            // Normalize for THREE.js EllipseCurve (counterclockwise)
             const curve = new THREE.EllipseCurve(
               entity.center.x, entity.center.y,
               entity.radius, entity.radius,
               sA, eA, false
             );
             const pts = curve.getPoints(72);
-            for (let i = 0; i < pts.length - 1; i++) addLineSegment(color, pts[i], pts[i + 1], entity);
+            for (let i = 0; i < pts.length - 1; i++) addLineSegment(color, tx(pts[i].x, pts[i].y), tx(pts[i + 1].x, pts[i + 1].y), entity);
           }
           break;
 
@@ -287,24 +288,22 @@ export default function DrawingCanvas({
             const eA = entity.endAngle || Math.PI * 2;
             const curve = new THREE.EllipseCurve(cx, cy, majorR, minorR, sA, eA, false, rotAngle);
             const pts = curve.getPoints(72);
-            for (let i = 0; i < pts.length - 1; i++) addLineSegment(color, pts[i], pts[i + 1], entity);
+            for (let i = 0; i < pts.length - 1; i++) addLineSegment(color, tx(pts[i].x, pts[i].y), tx(pts[i + 1].x, pts[i + 1].y), entity);
           }
           break;
 
         case "SPLINE":
-          // Use control points or fit points to draw a Catmull-Rom approximation
           {
             const pts = entity.controlPoints?.length ? entity.controlPoints : entity.fitPoints || [];
             if (pts.length >= 2) {
               if (pts.length === 2) {
-                addLineSegment(color, pts[0], pts[1], entity);
+                addLineSegment(color, tx(pts[0].x, pts[0].y), tx(pts[1].x, pts[1].y), entity);
               } else {
-                // Catmull-Rom through the control points
                 const vecs = pts.map(p => new THREE.Vector2(p.x, p.y));
                 const curve = new THREE.SplineCurve(vecs);
                 const splinePts = curve.getPoints(Math.max(pts.length * 8, 64));
                 for (let i = 0; i < splinePts.length - 1; i++) {
-                  addLineSegment(color, splinePts[i], splinePts[i + 1], entity);
+                  addLineSegment(color, tx(splinePts[i].x, splinePts[i].y), tx(splinePts[i + 1].x, splinePts[i + 1].y), entity);
                 }
               }
             }
@@ -312,12 +311,11 @@ export default function DrawingCanvas({
           break;
 
         case "POINT":
-          // Render points as a small cross
           if (entity.position) {
-            const { x, y } = entity.position;
+            const pp = tx(entity.position.x, entity.position.y);
             const s = 2; // cross size
-            addLineSegment(color, { x: x - s, y }, { x: x + s, y }, entity);
-            addLineSegment(color, { x, y: y - s }, { x, y: y + s }, entity);
+            addLineSegment(color, { x: pp.x - s, y: pp.y }, { x: pp.x + s, y: pp.y }, entity);
+            addLineSegment(color, { x: pp.x, y: pp.y - s }, { x: pp.x, y: pp.y + s }, entity);
           }
           break;
 
@@ -329,7 +327,8 @@ export default function DrawingCanvas({
             div.textContent = (entity.text || "").replace(/\\P/g, "\n").replace(/\{[^}]+\}/g, "");
             div.style.color = color;
             const label = new CSS2DObject(div);
-            label.position.set(entity.position.x, entity.position.y, 0);
+            const pp = tx(entity.position.x, entity.position.y);
+            label.position.set(pp.x, pp.y, 0);
             group.add(label);
           }
           break;
@@ -338,8 +337,12 @@ export default function DrawingCanvas({
         case "3DFACE":
           if (entity.points?.length >= 3) {
             const shape = new THREE.Shape();
-            shape.moveTo(entity.points[0].x, entity.points[0].y);
-            entity.points.slice(1).forEach(p => shape.lineTo(p.x, p.y));
+            const p0 = tx(entity.points[0].x, entity.points[0].y);
+            shape.moveTo(p0.x, p0.y);
+            entity.points.slice(1).forEach(p => {
+              const pp = tx(p.x, p.y);
+              shape.lineTo(pp.x, pp.y);
+            });
             const mesh = new THREE.Mesh(
               new THREE.ShapeGeometry(shape),
               new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, side: THREE.DoubleSide })
@@ -354,8 +357,12 @@ export default function DrawingCanvas({
             entity.boundaries.forEach(b => b.forEach(path => {
               if (path.length >= 3) {
                 const s = new THREE.Shape();
-                s.moveTo(path[0].x, path[0].y);
-                path.slice(1).forEach(p => s.lineTo(p.x, p.y));
+                const p0 = tx(path[0].x, path[0].y);
+                s.moveTo(p0.x, p0.y);
+                path.slice(1).forEach(p => {
+                  const pp = tx(p.x, p.y);
+                  s.lineTo(pp.x, pp.y);
+                });
                 const hMesh = new THREE.Mesh(
                   new THREE.ShapeGeometry(s),
                   new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.15, side: THREE.DoubleSide })
@@ -367,12 +374,10 @@ export default function DrawingCanvas({
           }
           break;
 
-        // INSERT — resolve block geometry and draw actual shapes
         case "INSERT":
           if (entity.position) {
             const blockDef = parsedData.blocks?.[entity.blockName];
             if (blockDef && blockDef.entities?.length > 0) {
-              // Transform each block entity to the INSERT position/scale/rotation
               const ix = entity.position.x;
               const iy = entity.position.y;
               const sx = entity.scale?.x || 1;
@@ -383,88 +388,37 @@ export default function DrawingCanvas({
               const bx = blockDef.basePoint?.x || 0;
               const by = blockDef.basePoint?.y || 0;
 
-              // Helper: transform a point from block space to world space
-              const txPt = (px, py) => {
+              const blockTx = (px, py) => {
                 const lx = (px - bx) * sx;
                 const ly = (py - by) * sy;
-                return {
-                  x: lx * cosR - ly * sinR + ix,
-                  y: lx * sinR + ly * cosR + iy,
-                };
+                const wx = lx * cosR - ly * sinR + ix;
+                const wy = lx * sinR + ly * cosR + iy;
+                return tx(wx, wy);
               };
 
-              blockDef.entities.forEach(bEnt => {
-                switch (bEnt.type) {
-                  case "LINE":
-                    if (bEnt.startPoint && bEnt.endPoint) {
-                      addLineSegment(color, txPt(bEnt.startPoint.x, bEnt.startPoint.y), txPt(bEnt.endPoint.x, bEnt.endPoint.y), entity);
-                    }
-                    break;
-                  case "LWPOLYLINE":
-                  case "POLYLINE":
-                    if (bEnt.vertices?.length > 1) {
-                      for (let i = 0; i < bEnt.vertices.length - 1; i++) {
-                        addLineSegment(color, txPt(bEnt.vertices[i].x, bEnt.vertices[i].y), txPt(bEnt.vertices[i+1].x, bEnt.vertices[i+1].y), entity);
-                      }
-                      if (bEnt.closed) {
-                        addLineSegment(color, txPt(bEnt.vertices[bEnt.vertices.length-1].x, bEnt.vertices[bEnt.vertices.length-1].y), txPt(bEnt.vertices[0].x, bEnt.vertices[0].y), entity);
-                      }
-                    }
-                    break;
-                  case "CIRCLE":
-                    if (bEnt.center) {
-                      const cr = bEnt.radius || 0;
-                      const steps = Math.max(24, Math.ceil(cr * 4));
-                      for (let i = 0; i < steps; i++) {
-                        const a1 = (i / steps) * Math.PI * 2;
-                        const a2 = ((i + 1) / steps) * Math.PI * 2;
-                        addLineSegment(color,
-                          txPt(bEnt.center.x + cr * Math.cos(a1), bEnt.center.y + cr * Math.sin(a1)),
-                          txPt(bEnt.center.x + cr * Math.cos(a2), bEnt.center.y + cr * Math.sin(a2)),
-                          entity);
-                      }
-                    }
-                    break;
-                  case "ARC":
-                    if (bEnt.center) {
-                      const ar = bEnt.radius || 0;
-                      let sA = (bEnt.startAngle || 0) * Math.PI / 180;
-                      let eA = (bEnt.endAngle || 360) * Math.PI / 180;
-                      let sweep = eA - sA;
-                      if (sweep <= 0) sweep += Math.PI * 2;
-                      const arcSteps = Math.max(16, Math.ceil(sweep / (Math.PI / 16)));
-                      for (let i = 0; i < arcSteps; i++) {
-                        const a1 = sA + (i / arcSteps) * sweep;
-                        const a2 = sA + ((i + 1) / arcSteps) * sweep;
-                        addLineSegment(color,
-                          txPt(bEnt.center.x + ar * Math.cos(a1), bEnt.center.y + ar * Math.sin(a1)),
-                          txPt(bEnt.center.x + ar * Math.cos(a2), bEnt.center.y + ar * Math.sin(a2)),
-                          entity);
-                      }
-                    }
-                    break;
-                  case "POINT":
-                    if (bEnt.position) {
-                      const pp = txPt(bEnt.position.x, bEnt.position.y);
-                      const ps = 1;
-                      addLineSegment(color, { x: pp.x - ps, y: pp.y }, { x: pp.x + ps, y: pp.y }, entity);
-                      addLineSegment(color, { x: pp.x, y: pp.y - ps }, { x: pp.x, y: pp.y + ps }, entity);
-                    }
-                    break;
-                  default:
-                    // For other entity types in blocks (like 3DFACE, SOLID), draw lines if they have vertices
-                    if (bEnt.vertices?.length > 1) {
-                      for (let i = 0; i < bEnt.vertices.length - 1; i++) {
-                        addLineSegment(color, txPt(bEnt.vertices[i].x, bEnt.vertices[i].y), txPt(bEnt.vertices[i+1].x, bEnt.vertices[i+1].y), entity);
-                      }
-                      // Close the shape for faces/solids
-                      if (bEnt.type === '3DFACE' || bEnt.type === 'SOLID' || bEnt.type === 'TRACE' || bEnt.closed) {
-                         addLineSegment(color, txPt(bEnt.vertices[bEnt.vertices.length-1].x, bEnt.vertices[bEnt.vertices.length-1].y), txPt(bEnt.vertices[0].x, bEnt.vertices[0].y), entity);
-                      }
-                    }
-                    break;
-                }
-              });
+              blockDef.entities.forEach(bEnt => processEntity(bEnt, blockTx, isSelected));
+            } else {
+              const pp = tx(entity.position.x, entity.position.y);
+              const ds = 1.5;
+              addLineSegment(color, { x: pp.x - ds, y: pp.y }, { x: pp.x + ds, y: pp.y }, entity);
+              addLineSegment(color, { x: pp.x, y: pp.y - ds }, { x: pp.x, y: pp.y + ds }, entity);
+            }
+          }
+          break;
+
+        case "DIMENSION":
+          if (entity.anchorPoint) {
+            const pp = tx(entity.anchorPoint.x, entity.anchorPoint.y);
+            const ds = 3;
+            addLineSegment(color, { x: pp.x - ds, y: pp.y }, { x: pp.x + ds, y: pp.y }, entity);
+            addLineSegment(color, { x: pp.x, y: pp.y - ds }, { x: pp.x, y: pp.y + ds }, entity);
+          }
+          break;
+      }
+    };
+
+    // Kick off rendering for all root entities
+    (parsedData.entities || []).forEach(entity => processEntity(entity));
             } else {
               // Fallback: small dot if block definition not found
               const { x, y } = entity.position;
