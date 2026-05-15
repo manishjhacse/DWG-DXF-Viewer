@@ -6,10 +6,10 @@ const storage = multer.memoryStorage();
 // File filter — only allow .dwg and .dxf
 const fileFilter = (req, file, cb) => {
   const ext = (file.originalname || '').split('.').pop().toLowerCase();
-  if (ext === 'dwg' || ext === 'dxf') {
+  if (ext === 'dwg' || ext === 'dxf' || ext === 'prj') {
     cb(null, true);
   } else {
-    cb(new Error('Only .dwg and .dxf files are allowed'), false);
+    cb(new Error('Only .dwg, .dxf, and .prj files are allowed'), false);
   }
 };
 
@@ -17,7 +17,7 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB max
+    fileSize: 100 * 1024 * 1024, // 100MB max
   },
 });
 

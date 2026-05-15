@@ -69,6 +69,58 @@ export default function ViewerPage() {
         } else if (d.metadata?.geolocation) {
           setAnchorLat(d.metadata.geolocation.latitude);
           setAnchorLng(d.metadata.geolocation.longitude);
+
+          // Auto-fetch and apply projection details if present
+          const pd = d.metadata.geolocation.projectionDetails;
+          if (pd) {
+            let autoProj4 = null;
+            let autoEpsg = pd.epsg;
+
+            // 1. Fetch exact string from EPSG.io if code is known
+            if (pd.epsg) {
+              try {
+                const code = pd.epsg.replace('EPSG:', '').trim();
+                const epsgRes = await axios.get(`https://epsg.io/${code}.proj4`);
+                if (epsgRes.data && typeof epsgRes.data === 'string') {
+                  autoProj4 = epsgRes.data;
+                  console.log(`[Auto-Projection] Fetched proj4 string from epsg.io for ${pd.epsg}`);
+                }
+              } catch (epsgErr) {
+                console.warn("[Auto-Projection] Failed to fetch from epsg.io:", epsgErr.message);
+              }
+            }
+
+            // 2. Fallback: Generate standard UTM proj4 string if zone is known
+            if (!autoProj4 && pd.zone) {
+              const datumStr = pd.datum && pd.datum.includes('83') ? 'NAD83' : 'WGS84';
+              const unitsStr = pd.units && pd.units.toLowerCase().includes('feet') ? 'us-ft' : 'm';
+              const isSouth = pd.projection && pd.projection.toLowerCase().includes('south');
+              autoProj4 = `+proj=utm +zone=${pd.zone} ${isSouth ? '+south ' : ''}+datum=${datumStr} +units=${unitsStr} +no_defs`;
+              if (!autoEpsg && datumStr === 'WGS84') {
+                autoEpsg = `EPSG:32${isSouth ? '7' : '6'}${pd.zone}`;
+              }
+              console.log(`[Auto-Projection] Generated heuristic UTM string: ${autoProj4}`);
+            }
+
+            if (autoProj4) {
+              setProj4String(autoProj4);
+              setEpsg(autoEpsg);
+              
+              // Persist the auto-fetched projection to avoid re-fetching on next load
+              try {
+                await axios.put(`${API || 'http://localhost:5000'}/api/files/${d._id}/map-placement`, {
+                  anchorLat: d.metadata.geolocation.latitude,
+                  anchorLng: d.metadata.geolocation.longitude,
+                  rotation: 0,
+                  scale: 1,
+                  proj4String: autoProj4,
+                  epsg: autoEpsg,
+                });
+              } catch (saveErr) {
+                console.warn("[Auto-Projection] Could not persist auto-projection:", saveErr.message);
+              }
+            }
+          }
         }
 
         if (d.orthomosaic && d.orthomosaic.s3Key) {

@@ -14,8 +14,11 @@ const {
   saveMapPlacement
 } = require('../controllers/fileController');
 
-// Upload a file
-router.post('/upload', upload.single('file'), asyncHandler(uploadFile));
+// Upload a file (along with an optional .prj sidecar file)
+router.post('/upload', upload.fields([
+  { name: 'file', maxCount: 1 },
+  { name: 'prj', maxCount: 1 }
+]), asyncHandler(uploadFile));
 
 // List all drawings
 router.get('/', asyncHandler(listFiles));

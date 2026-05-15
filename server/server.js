@@ -31,7 +31,7 @@ app.use(cors({
   origin: '*', // Allow all origins — needed for Three.js TextureLoader and browser image requests
   credentials: false,
 }));
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Static files (for uploaded files)
@@ -80,7 +80,7 @@ app.use((err, req, res, next) => {
 
   if (err.code === 'LIMIT_FILE_SIZE') {
     return res.status(413).json({ 
-      error: 'File too large. Maximum size is 50MB.' 
+      error: 'File too large. Maximum size is 100MB.' 
     });
   }
 

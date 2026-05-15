@@ -4,6 +4,7 @@ const Drawing = require('../models/Drawing');
 const { uploadToS3, deleteFromS3 } = require('../config/s3');
 const { parseDxfFile } = require('../services/dxfParser');
 const { parseDwgFile } = require('../services/converter');
+const { parseProjectionDetails } = require('../services/geoExtractor');
 
 /**
  * POST /api/files/upload
@@ -11,12 +12,21 @@ const { parseDwgFile } = require('../services/converter');
  */
 const uploadFile = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+    const mainFile = req.files && req.files['file'] ? req.files['file'][0] : null;
+    const prjFile = req.files && req.files['prj'] ? req.files['prj'][0] : null;
+
+    if (!mainFile) {
+      return res.status(400).json({ error: 'No CAD file uploaded' });
     }
 
-    const { originalname, buffer, size } = req.file;
+    const { originalname, buffer, size } = mainFile;
     const ext = originalname.split('.').pop().toLowerCase();
+    
+    let prjText = null;
+    if (prjFile) {
+      prjText = prjFile.buffer.toString('utf-8');
+      console.log(`[Server Log] 📄 Received sidecar .prj file: ${prjFile.originalname}`);
+    }
 
     console.log(`[Server Log] 📥 Received upload request for file: ${originalname} (${size} bytes)`);
 
@@ -33,10 +43,10 @@ const uploadFile = async (req, res) => {
     // Process based on file type
     if (ext === 'dxf') {
       console.log(`[Server Log] ⚙️ Processing DXF file...`);
-      await processDxfFile(drawing, buffer);
+      await processDxfFile(drawing, buffer, prjText);
     } else if (ext === 'dwg') {
       console.log(`[Server Log] ⚙️ Processing DWG file...`);
-      await processDwgFile(drawing, buffer, originalname);
+      await processDwgFile(drawing, buffer, originalname, prjText);
     } else {
       console.warn(`[Server Log] ⚠️ Unsupported file extension: ${ext}`);
     }
@@ -60,7 +70,7 @@ const uploadFile = async (req, res) => {
 /**
  * Process a DXF file: parse and store
  */
-const processDxfFile = async (drawing, buffer) => {
+const processDxfFile = async (drawing, buffer, prjText = null) => {
   try {
     console.log(`[Server Log] 🛠️ Starting DXF parsing for ${drawing.originalName}`);
     const parsedData = parseDxfFile(buffer);
@@ -76,6 +86,14 @@ const processDxfFile = async (drawing, buffer) => {
     if (parsedData.geolocation) {
       drawing.metadata.geolocation = parsedData.geolocation;
     }
+    
+    // Override projection details if a .prj sidecar file was provided
+    if (prjText) {
+      if (!drawing.metadata.geolocation) drawing.metadata.geolocation = {};
+      drawing.metadata.geolocation.source = 'SIDECAR_PRJ';
+      drawing.metadata.geolocation.projectionDetails = parseProjectionDetails(prjText);
+      console.log(`[Server Log] ✅ Applied exact projection metadata from sidecar .prj file`);
+    }
 
     // Upload to S3 for persistence
     const s3Key = `drawings/dxf/${drawing._id}/${drawing.originalName}`;
@@ -86,6 +104,14 @@ const processDxfFile = async (drawing, buffer) => {
       console.log(`[Server Log] ✅ S3 upload successful: ${s3Key}`);
     } catch (s3Err) {
       console.warn(`[Server Log] ⚠️ S3 upload failed:`, s3Err.message);
+    }
+
+    // Override projection details if a .prj sidecar file was provided
+    if (prjText) {
+      if (!drawing.metadata.geolocation) drawing.metadata.geolocation = {};
+      drawing.metadata.geolocation.source = 'SIDECAR_PRJ';
+      drawing.metadata.geolocation.projectionDetails = parseProjectionDetails(prjText);
+      console.log(`[Server Log] ✅ Applied exact projection metadata from sidecar .prj file`);
     }
 
     await drawing.save();
@@ -100,7 +126,7 @@ const processDxfFile = async (drawing, buffer) => {
 /**
  * Process a DWG file: upload to S3, then parse directly with WASM
  */
-const processDwgFile = async (drawing, buffer, originalName) => {
+const processDwgFile = async (drawing, buffer, originalName, prjText = null) => {
   try {
     // Step 1: Upload DWG to S3
     const s3Key = `drawings/dwg/${drawing._id}/${originalName}`;
@@ -139,6 +165,14 @@ const processDwgFile = async (drawing, buffer, originalName) => {
     };
     if (parsedData.geolocation) {
       drawing.metadata.geolocation = parsedData.geolocation;
+    }
+
+    // Override projection details if a .prj sidecar file was provided
+    if (prjText) {
+      if (!drawing.metadata.geolocation) drawing.metadata.geolocation = {};
+      drawing.metadata.geolocation.source = 'SIDECAR_PRJ';
+      drawing.metadata.geolocation.projectionDetails = parseProjectionDetails(prjText);
+      console.log(`[Server Log] ✅ Applied exact projection metadata from sidecar .prj file`);
     }
 
     await drawing.save();
