@@ -18,6 +18,8 @@ const uploadFile = async (req, res) => {
     const { originalname, buffer, size } = req.file;
     const ext = originalname.split('.').pop().toLowerCase();
 
+    console.log(`[Server Log] 📥 Received upload request for file: ${originalname} (${size} bytes)`);
+
     // Create drawing record
     const drawing = new Drawing({
       originalName: originalname,
@@ -30,9 +32,13 @@ const uploadFile = async (req, res) => {
 
     // Process based on file type
     if (ext === 'dxf') {
+      console.log(`[Server Log] ⚙️ Processing DXF file...`);
       await processDxfFile(drawing, buffer);
     } else if (ext === 'dwg') {
+      console.log(`[Server Log] ⚙️ Processing DWG file...`);
       await processDwgFile(drawing, buffer, originalname);
+    } else {
+      console.warn(`[Server Log] ⚠️ Unsupported file extension: ${ext}`);
     }
 
     res.status(201).json({
@@ -46,7 +52,7 @@ const uploadFile = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Upload error:', error);
+    console.error(`[Server Log] ❌ Upload error:`, error);
     res.status(500).json({ error: error.message || 'File upload failed' });
   }
 };
@@ -56,7 +62,9 @@ const uploadFile = async (req, res) => {
  */
 const processDxfFile = async (drawing, buffer) => {
   try {
+    console.log(`[Server Log] 🛠️ Starting DXF parsing for ${drawing.originalName}`);
     const parsedData = parseDxfFile(buffer);
+    console.log(`[Server Log] ✅ DXF parsing complete. Extracted ${parsedData.entityCount} entities and ${parsedData.layers.length} layers.`);
 
     drawing.parsedData = parsedData;
     drawing.status = 'ready';
@@ -72,10 +80,12 @@ const processDxfFile = async (drawing, buffer) => {
     // Upload to S3 for persistence
     const s3Key = `drawings/dxf/${drawing._id}/${drawing.originalName}`;
     try {
+      console.log(`[Server Log] ☁️ Uploading DXF to S3...`);
       await uploadToS3(buffer, s3Key, 'application/dxf');
       drawing.s3Key = s3Key;
+      console.log(`[Server Log] ✅ S3 upload successful: ${s3Key}`);
     } catch (s3Err) {
-      console.warn('S3 upload failed:', s3Err.message);
+      console.warn(`[Server Log] ⚠️ S3 upload failed:`, s3Err.message);
     }
 
     await drawing.save();
@@ -95,10 +105,12 @@ const processDwgFile = async (drawing, buffer, originalName) => {
     // Step 1: Upload DWG to S3
     const s3Key = `drawings/dwg/${drawing._id}/${originalName}`;
     try {
+      console.log(`[Server Log] ☁️ Uploading DWG to S3...`);
       await uploadToS3(buffer, s3Key, 'application/octet-stream');
       drawing.s3Key = s3Key;
+      console.log(`[Server Log] ✅ S3 upload successful: ${s3Key}`);
     } catch (s3Err) {
-      console.warn('S3 upload skipped:', s3Err.message);
+      console.warn(`[Server Log] ⚠️ S3 upload skipped:`, s3Err.message);
     }
 
     // Step 2: Parse DWG directly using WASM engine
@@ -107,7 +119,9 @@ const processDwgFile = async (drawing, buffer, originalName) => {
 
     let parsedData;
     try {
+      console.log(`[Server Log] 🛠️ Starting WASM DWG parsing for ${originalName}`);
       parsedData = await parseDwgFile(buffer);
+      console.log(`[Server Log] ✅ DWG parsing complete. Extracted ${parsedData.entityCount} entities and ${parsedData.layers.length} layers.`);
     } catch (parseErr) {
       drawing.status = 'error';
       drawing.errorMessage = `DWG parsing failed: ${parseErr.message}`;

@@ -21,7 +21,7 @@ const getLibreDwg = async () => {
   ) + path.sep;
 
   libredwgInstance = await LibreDwg.create(wasmDir);
-  console.log('✅ LibreDWG WASM engine initialized');
+  console.log('[Server Log] ✅ LibreDWG WASM engine initialized successfully');
   return libredwgInstance;
 };
 
@@ -42,21 +42,24 @@ const parseDwgFile = async (fileBuffer) => {
     // Write buffer to WASM virtual filesystem
     const uint8Data = new Uint8Array(fileBuffer);
     libredwg.FS.writeFile(tmpName, uint8Data);
-    console.log(`WASM FS: Written ${tmpName}, size: ${uint8Data.length} bytes`);
+    console.log(`[Server Log] 📝 WASM FS: Written ${tmpName}, size: ${uint8Data.length} bytes`);
 
     // Read using the WASM file reader
+    console.log(`[Server Log] 🛠️ Calling LibreDWG dwg_read_file on ${tmpName}`);
     const result = libredwg.dwg_read_file(tmpName, DwgFileType.DWG);
 
     if (result.error >= 128) {
-      console.warn(`dwg_read_file returned severe error ${result.error} for ${tmpName}`);
+      console.error(`[Server Log] ❌ dwg_read_file returned severe error ${result.error} for ${tmpName}`);
       throw new Error(`LibreDWG error code: ${result.error}`);
     } else if (result.error !== 0) {
-      console.warn(`LibreDWG non-critical warning (code ${result.error}) for ${tmpName}. Continuing parsing...`);
+      console.warn(`[Server Log] ⚠️ LibreDWG non-critical warning (code ${result.error}) for ${tmpName}. Continuing parsing...`);
+    } else {
+      console.log(`[Server Log] ✅ dwg_read_file succeeded for ${tmpName}`);
     }
 
     dwgDataPtr = result.data;
   } catch (fsErr) {
-    console.error('LibreDWG parsing failed:', fsErr.message);
+    console.error('[Server Log] ❌ LibreDWG parsing failed:', fsErr.message);
     throw fsErr;
   } finally {
     // Clean up WASM virtual FS
@@ -70,14 +73,17 @@ const parseDwgFile = async (fileBuffer) => {
   // Step 2: Extract geolocation from raw WASM pointer BEFORE converting/freeing
   // The dynapi functions need the raw Dwg_Data pointer, which is destroyed after convert + free.
   let geolocation = null;
+  console.log(`[Server Log] 🌍 Attempting to extract geolocation data from raw DWG pointer...`);
   try {
     geolocation = extractGeoFromDwgRaw(libredwg, dwgDataPtr);
   } catch (geoErr) {
-    console.warn('⚠️ Geolocation extraction error (non-fatal):', geoErr.message);
+    console.warn('[Server Log] ⚠️ Geolocation extraction error (non-fatal):', geoErr.message);
   }
 
   // Step 3: Convert the low-level WASM data into a high-level DwgDatabase
+  console.log(`[Server Log] 🔄 Converting raw DWG pointer to high-level DwgDatabase...`);
   const db = libredwg.convert(dwgDataPtr);
+  console.log(`[Server Log] ✅ Conversion to DwgDatabase successful.`);
 
   // Step 4: Free the low-level WASM data (db is independent now)
   try { libredwg.dwg_free(dwgDataPtr); } catch (e) { /* ok */ }
@@ -130,7 +136,7 @@ const parseDwgFile = async (fileBuffer) => {
   });
 
   if (unknownTypes.size > 0) {
-    console.log(`ℹ️ Skipped unhandled entity types: ${[...unknownTypes].join(', ')}`);
+    console.log(`[Server Log] ℹ️ Skipped unhandled entity types: ${[...unknownTypes].join(', ')}`);
   }
 
   // Build final layers (merge table layers + entity-discovered layers)
@@ -181,9 +187,9 @@ const parseDwgFile = async (fileBuffer) => {
 
   const blockCount = Object.keys(blocks).length;
   if (blockCount > 0) {
-    console.log(`✅ Extracted ${blockCount} block definitions: ${Object.keys(blocks).slice(0, 10).join(', ')}${blockCount > 10 ? '...' : ''}`);
+    console.log(`[Server Log] ✅ Extracted ${blockCount} block definitions: ${Object.keys(blocks).slice(0, 10).join(', ')}${blockCount > 10 ? '...' : ''}`);
   } else {
-    console.log('ℹ️ No block definitions found (INSERT entities will show as markers)');
+    console.log('[Server Log] ℹ️ No block definitions found (INSERT entities will show as markers)');
   }
 
   const bounds = {
@@ -196,9 +202,9 @@ const parseDwgFile = async (fileBuffer) => {
   // Geolocation was already extracted from the raw WASM pointer (before dwg_free)
   // in Step 2 above. Just include it in the result.
   if (geolocation) {
-    console.log('✅ Final geolocation for this DWG:', JSON.stringify(geolocation));
+    console.log('[Server Log] ✅ Final geolocation for this DWG attached to response.');
   } else {
-    console.log('ℹ️ No geolocation data found in this DWG file');
+    console.log('[Server Log] ℹ️ No geolocation data found in this DWG file.');
   }
 
   return {

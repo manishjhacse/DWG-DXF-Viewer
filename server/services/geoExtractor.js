@@ -263,6 +263,7 @@ const extractFieldsFromGeodata = (libredwg, geodataPtr) => {
       longitude: lng,
       northDirection,
       coordinateSystem: coordinateSystem || null,
+      projectionDetails: coordinateSystem ? parseProjectionDetails(coordinateSystem) : null,
       designPoint,
       referencePoint,
       source: 'GEODATA',
@@ -506,6 +507,7 @@ const extractGeoFromDxfText = (dxfContent) => {
       longitude: lng,
       northDirection: northDir || 0,
       coordinateSystem: csDef || null,
+      projectionDetails: csDef ? parseProjectionDetails(csDef) : null,
       designPoint,
       referencePoint: refPt,
       source: 'DXF_GEODATA',
@@ -529,10 +531,106 @@ const isValidLatLng = (lat, lng) => {
   );
 };
 
+/**
+ * Parse the coordinate system definition string (XML or WKT) to extract
+ * projection parameters for the frontend map placement.
+ * @param {string} crsDef - Coordinate System Definition string
+ * @returns {object|null} Extracted projection details
+ */
+const parseProjectionDetails = (crsDef) => {
+  if (!crsDef || typeof crsDef !== 'string') return null;
+  
+  const details = {
+    epsg: null,
+    zone: null,
+    datum: null,
+    projection: null,
+    units: null,
+    scaleFactor: null,
+    centralMeridian: null,
+    originLatitude: null,
+    falseEasting: null,
+    falseNorthing: null,
+  };
+
+  try {
+    // 1. Try extracting EPSG
+    const epsgMatch = crsDef.match(/(?:EPSG|epsg|code)[:\s"=]*(\d{4,6})/i);
+    if (epsgMatch) {
+      details.epsg = `EPSG:${epsgMatch[1]}`;
+    }
+
+    // 2. Determine if it is XML or WKT
+    if (crsDef.includes('<CoordinateSystem') || crsDef.includes('<?xml')) {
+      // It's XML format
+      const nameMatch = crsDef.match(/<Name>([^<]+)<\/Name>/i);
+      if (nameMatch) details.projection = nameMatch[1].trim();
+      
+      const datumMatch = crsDef.match(/<Datum.*?>[\s\S]*?<Name>([^<]+)<\/Name>/i);
+      if (datumMatch) details.datum = datumMatch[1].trim();
+      
+      const unitsMatch = crsDef.match(/<Unit.*?>[\s\S]*?<Name>([^<]+)<\/Name>/i);
+      if (unitsMatch) details.units = unitsMatch[1].trim();
+      
+      // Parameters
+      const paramMatches = [...crsDef.matchAll(/<Parameter>[\s\S]*?<ParameterCode>([^<]+)<\/ParameterCode>[\s\S]*?<Value>([^<]+)<\/Value>[\s\S]*?<\/Parameter>/gi)];
+      for (const p of paramMatches) {
+        const code = p[1].toLowerCase().replace(/\s+/g, '');
+        const value = parseFloat(p[2]);
+        if (!isNaN(value)) {
+          if (code.includes('scale')) details.scaleFactor = value;
+          else if (code.includes('centralmeridian')) details.centralMeridian = value;
+          else if (code.includes('originlatitude')) details.originLatitude = value;
+          else if (code.includes('falseeasting')) details.falseEasting = value;
+          else if (code.includes('falsenorthing')) details.falseNorthing = value;
+        }
+      }
+    } else {
+      // It's likely WKT
+      const projcsMatch = crsDef.match(/PROJCS\["([^"]+)"/i);
+      if (projcsMatch) details.projection = projcsMatch[1].trim();
+      
+      const geogcsMatch = crsDef.match(/GEOGCS\["([^"]+)"/i);
+      if (geogcsMatch) details.datum = geogcsMatch[1].trim();
+      
+      const unitMatch = crsDef.match(/UNIT\["([^"]+)"/i);
+      if (unitMatch) details.units = unitMatch[1].trim();
+      
+      const paramsMatches = [...crsDef.matchAll(/PARAMETER\["([^"]+)",([\d.-]+)\]/gi)];
+      for (const p of paramsMatches) {
+        const code = p[1].toLowerCase().replace(/\s+/g, '_');
+        const value = parseFloat(p[2]);
+        if (!isNaN(value)) {
+          if (code.includes('scale')) details.scaleFactor = value;
+          else if (code.includes('central_meridian')) details.centralMeridian = value;
+          else if (code.includes('latitude_of_origin')) details.originLatitude = value;
+          else if (code.includes('false_easting')) details.falseEasting = value;
+          else if (code.includes('false_northing')) details.falseNorthing = value;
+        }
+      }
+    }
+    
+    // Extract Zone from projection name if missing
+    if (details.projection && !details.zone) {
+      const zoneMatch = details.projection.match(/UTM.*?(?:Zone)?\s*(\d+)/i);
+      if (zoneMatch) {
+        details.zone = parseInt(zoneMatch[1]);
+      }
+    }
+
+    console.log('[Server Log] ✅ Parsed Projection Details:', JSON.stringify(details));
+    return details;
+  } catch (error) {
+    console.warn('[Server Log] ⚠️ Error parsing projection details:', error.message);
+    return null;
+  }
+};
+
 module.exports = {
   extractGeoFromDwgRaw,
   extractGeoFromDxfHeader,
   extractGeoFromDxfText,
   convertProjectedToWGS84,
   isValidLatLng,
+  parseProjectionDetails,
 };

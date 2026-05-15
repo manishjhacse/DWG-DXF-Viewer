@@ -50,6 +50,7 @@ const drawingSchema = new mongoose.Schema({
       longitude: { type: Number },
       northDirection: { type: Number },
       coordinateSystem: { type: String, default: null },
+      projectionDetails: { type: mongoose.Schema.Types.Mixed, default: null },
       designPoint: {
         x: { type: Number },
         y: { type: Number },
