@@ -22,7 +22,7 @@ const BUCKET = process.env.S3_BUCKET_NAME;
  */
 const uploadToS3 = async (data, s3Key, contentType = 'application/octet-stream') => {
   let body = data;
-  
+
   // If data is a string, it's a file path
   if (typeof data === 'string' && fs.existsSync(data)) {
     body = fs.createReadStream(data);
@@ -43,7 +43,7 @@ const uploadToS3 = async (data, s3Key, contentType = 'application/octet-stream')
 };
 
 /**
- * Download a file from S3
+ * Download a file from S3 to a local path
  * @param {string} s3Key - S3 object key
  * @param {string} destPath - Local destination path
  */
@@ -64,6 +64,24 @@ const downloadFromS3 = async (s3Key, destPath) => {
 };
 
 /**
+ * Get data from S3 as a string
+ * @param {string} s3Key - S3 object key
+ * @returns {Promise<string>}
+ */
+const getDataFromS3 = async (s3Key) => {
+  const command = new GetObjectCommand({
+    Bucket: BUCKET,
+    Key: s3Key,
+  });
+  const response = await s3Client.send(command);
+  if (!response.Body) {
+    throw new Error('S3 response body is empty');
+  }
+  const str = await response.Body.transformToString();
+  return str;
+};
+
+/**
  * Delete a file from S3
  * @param {string} s3Key - S3 object key
  */
@@ -75,4 +93,4 @@ const deleteFromS3 = async (s3Key) => {
   await s3Client.send(command);
 };
 
-module.exports = { s3Client, uploadToS3, downloadFromS3, deleteFromS3 };
+module.exports = { s3Client, uploadToS3, downloadFromS3, getDataFromS3, deleteFromS3 };

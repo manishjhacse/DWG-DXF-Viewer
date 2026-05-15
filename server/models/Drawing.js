@@ -31,9 +31,9 @@ const drawingSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
-  // Parsed DXF data stored as JSON
-  parsedData: {
-    type: mongoose.Schema.Types.Mixed,
+  // Key for the parsed JSON data stored on S3
+  jsonS3Key: {
+    type: String,
     default: null,
   },
   metadata: {

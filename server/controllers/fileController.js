@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const Drawing = require('../models/Drawing');
-const { uploadToS3, deleteFromS3 } = require('../config/s3');
+const { uploadToS3, deleteFromS3, getDataFromS3 } = require('../config/s3');
 const { parseDxfFile } = require('../services/dxfParser');
 const { parseDwgFile } = require('../services/converter');
 const { parseProjectionDetails } = require('../services/geoExtractor');
@@ -76,7 +76,13 @@ const processDxfFile = async (drawing, buffer, prjText = null) => {
     const parsedData = parseDxfFile(buffer);
     console.log(`[Server Log] ✅ DXF parsing complete. Extracted ${parsedData.entityCount} entities and ${parsedData.layers.length} layers.`);
 
-    drawing.parsedData = parsedData;
+    // Instead of storing parsedData in Mongo, we upload it to S3 as JSON
+    const jsonS3Key = `drawings/json/${drawing._id}/data.json`;
+    console.log(`[Server Log] ☁️ Uploading parsed JSON to S3...`);
+    const jsonBuffer = Buffer.from(JSON.stringify(parsedData));
+    await uploadToS3(jsonBuffer, jsonS3Key, 'application/json');
+    drawing.jsonS3Key = jsonS3Key;
+
     drawing.status = 'ready';
     drawing.metadata = {
       layers: parsedData.layers.map((l) => l.name),
@@ -155,8 +161,13 @@ const processDwgFile = async (drawing, buffer, originalName, prjText = null) => 
       throw parseErr;
     }
 
-    // Step 3: Store parsed data
-    drawing.parsedData = parsedData;
+    // Instead of storing parsedData in Mongo, we upload it to S3 as JSON
+    const jsonS3Key = `drawings/json/${drawing._id}/data.json`;
+    console.log(`[Server Log] ☁️ Uploading parsed JSON to S3...`);
+    const jsonBuffer = Buffer.from(JSON.stringify(parsedData));
+    await uploadToS3(jsonBuffer, jsonS3Key, 'application/json');
+    drawing.jsonS3Key = jsonS3Key;
+
     drawing.status = 'ready';
     drawing.metadata = {
       layers: parsedData.layers.map((l) => l.name),
@@ -196,7 +207,30 @@ const getFile = async (req, res) => {
     if (!drawing) {
       return res.status(404).json({ error: 'Drawing not found' });
     }
-    res.json({ drawing });
+
+    // Convert to plain object to attach parsedData
+    const drawingObj = drawing.toObject();
+
+    // If there is a sidecar JSON file on S3, fetch it
+    if (drawing.jsonS3Key) {
+      try {
+        console.log(`[Server Log] ☁️ Fetching parsed JSON from S3 (${drawing.jsonS3Key})...`);
+        const startTime = Date.now();
+        const jsonContent = await getDataFromS3(drawing.jsonS3Key);
+        console.log("done1");
+        const downloadTime = Date.now() - startTime;
+        console.log(`[Server Log] 📥 Downloaded ${Math.round(jsonContent.length / 1024)}KB from S3 in ${downloadTime}ms`);
+        
+        console.log(`[Server Log] ⚙️ Parsing JSON data...`);
+        const parseStart = Date.now();
+        drawingObj.parsedData = JSON.parse(jsonContent);
+        console.log(`[Server Log] ✅ JSON parsed in ${Date.now() - parseStart}ms`);
+      } catch (s3Err) {
+        console.error(`[Server Log] ❌ Failed to fetch/parse JSON from S3:`, s3Err.message);
+      }
+    }
+
+    res.json({ drawing: drawingObj });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -209,7 +243,6 @@ const getFile = async (req, res) => {
 const listFiles = async (req, res) => {
   try {
     const drawings = await Drawing.find()
-      .select('-parsedData')
       .sort({ createdAt: -1 })
       .limit(50);
 
@@ -236,6 +269,9 @@ const deleteFile = async (req, res) => {
     }
     if (drawing.dxfS3Key) {
       try { await deleteFromS3(drawing.dxfS3Key); } catch (e) { /* ignore */ }
+    }
+    if (drawing.jsonS3Key) {
+      try { await deleteFromS3(drawing.jsonS3Key); } catch (e) { /* ignore */ }
     }
 
     await Drawing.findByIdAndDelete(req.params.id);
