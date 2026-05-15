@@ -73,12 +73,12 @@ const parseDxfFile = (fileContent) => {
     maxY: isFinite(maxY) ? maxY : 100,
   };
 
-  // Extract geolocation — Strategy 1: DXF header variables ($LATITUDE, $LONGITUDE)
-  let geolocation = extractGeoFromDxfHeader(dxf.header);
+  // Extract geolocation — Strategy 1: Scan raw DXF text for GEODATA object (in OBJECTS section)
+  let geolocation = extractGeoFromDxfText(content);
 
-  // Strategy 2: Scan raw DXF text for GEODATA object (in OBJECTS section)
+  // Strategy 2: Fallback to DXF header variables ($LATITUDE, $LONGITUDE)
   if (!geolocation) {
-    geolocation = extractGeoFromDxfText(content);
+    geolocation = extractGeoFromDxfHeader(dxf.header);
   }
 
   if (geolocation) {

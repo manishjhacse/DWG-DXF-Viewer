@@ -18,46 +18,7 @@ const extractGeoFromDwgRaw = (libredwg, dwgDataPtr) => {
 
   let geolocation = null;
 
-  // ─── Strategy 1: Read $LATITUDE / $LONGITUDE header variables ───
-  try {
-    const latResult = libredwg.dwg_dynapi_header_value(dwgDataPtr, 'LATITUDE');
-    const lngResult = libredwg.dwg_dynapi_header_value(dwgDataPtr, 'LONGITUDE');
-
-    console.log('🌍 Header $LATITUDE result:', JSON.stringify(latResult));
-    console.log('🌍 Header $LONGITUDE result:', JSON.stringify(lngResult));
-
-    if (latResult?.success && lngResult?.success) {
-      const lat = typeof latResult.data === 'number' ? latResult.data : parseFloat(latResult.data);
-      const lng = typeof lngResult.data === 'number' ? lngResult.data : parseFloat(lngResult.data);
-
-      if (!isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0) && isValidLatLng(lat, lng)) {
-        geolocation = {
-          latitude: lat,
-          longitude: lng,
-          northDirection: 0,
-          coordinateSystem: 'WGS84',
-          designPoint: null,
-          referencePoint: null,
-          source: 'HEADER_VARS',
-        };
-
-        // Also try to read $NORTHDIRECTION
-        try {
-          const northResult = libredwg.dwg_dynapi_header_value(dwgDataPtr, 'NORTHDIRECTION');
-          if (northResult?.success && typeof northResult.data === 'number') {
-            geolocation.northDirection = northResult.data;
-          }
-        } catch (e) { /* optional field */ }
-
-        console.log('✅ Extracted geolocation from DWG header vars:', geolocation);
-        return geolocation;
-      }
-    }
-  } catch (headerErr) {
-    console.warn('⚠️ Header variable extraction failed:', headerErr.message);
-  }
-
-  // ─── Strategy 2: Find GEODATA objects via dwg_getall_object_by_type ───
+  // ─── Strategy 1: Find GEODATA objects via dwg_getall_object_by_type ───
   try {
     // DWG_TYPE_GEODATA = 638 (from the library's enum)
     const DWG_TYPE_GEODATA = 638;
@@ -80,7 +41,7 @@ const extractGeoFromDwgRaw = (libredwg, dwgDataPtr) => {
     console.warn('⚠️ GEODATA object extraction failed:', geodataErr.message);
   }
 
-  // ─── Strategy 2b: Walk all objects looking for GEODATA by dxfname ───
+  // ─── Strategy 2: Walk all objects looking for GEODATA by dxfname ───
   try {
     // The LibreDwg Proxy delegates unknown methods to wasmInstance automatically
     const numObjects = libredwg.dwg_get_num_objects
@@ -128,6 +89,47 @@ const extractGeoFromDwgRaw = (libredwg, dwgDataPtr) => {
   } catch (scanErr) {
     console.warn('⚠️ Object scan for GEODATA failed:', scanErr.message);
   }
+
+  // ─── Strategy 3: Fallback to $LATITUDE / $LONGITUDE header variables ───
+  try {
+    const latResult = libredwg.dwg_dynapi_header_value(dwgDataPtr, 'LATITUDE');
+    const lngResult = libredwg.dwg_dynapi_header_value(dwgDataPtr, 'LONGITUDE');
+
+    console.log('🌍 Header $LATITUDE result:', JSON.stringify(latResult));
+    console.log('🌍 Header $LONGITUDE result:', JSON.stringify(lngResult));
+
+    if (latResult?.success && lngResult?.success) {
+      const lat = typeof latResult.data === 'number' ? latResult.data : parseFloat(latResult.data);
+      const lng = typeof lngResult.data === 'number' ? lngResult.data : parseFloat(lngResult.data);
+
+      if (!isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0) && isValidLatLng(lat, lng)) {
+        geolocation = {
+          latitude: lat,
+          longitude: lng,
+          northDirection: 0,
+          coordinateSystem: 'WGS84',
+          projectionDetails: null, // Basic lat/lng fallback lacks detailed projection info
+          designPoint: null,
+          referencePoint: null,
+          source: 'HEADER_VARS',
+        };
+
+        // Also try to read $NORTHDIRECTION
+        try {
+          const northResult = libredwg.dwg_dynapi_header_value(dwgDataPtr, 'NORTHDIRECTION');
+          if (northResult?.success && typeof northResult.data === 'number') {
+            geolocation.northDirection = northResult.data;
+          }
+        } catch (e) { /* optional field */ }
+
+        console.log('✅ Extracted geolocation from DWG header vars (Fallback):', geolocation);
+        return geolocation;
+      }
+    }
+  } catch (headerErr) {
+    console.warn('⚠️ Header variable extraction failed:', headerErr.message);
+  }
+
 
   console.log('ℹ️ No geolocation data found in DWG file');
   return null;
