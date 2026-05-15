@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
+import proj4 from "proj4";
 
 // ACI color palette (same as DrawingCanvas)
 const ACI_COLORS = [
@@ -29,7 +30,20 @@ const getColorForEntity = (entity, layerMap) => {
  * Convert CAD coordinates to lat/lng given anchor point, rotation, and scale.
  * CAD units are assumed to be in meters.
  */
-const cadToLatLng = (L, cadX, cadY, bounds, anchorLat, anchorLng, rotation, scale) => {
+const cadToLatLng = (L, cadX, cadY, bounds, anchorLat, anchorLng, rotation, scale, proj4String) => {
+  if (proj4String) {
+    try {
+      // proj4 mathematically converts the local planar coordinate (cadX, cadY)
+      // from the user's selected projection to global WGS84 Lat/Lng
+      const [lng, lat] = proj4(proj4String, 'EPSG:4326', [cadX, cadY]);
+      return L.latLng(lat, lng);
+    } catch (e) {
+      console.warn("Proj4 conversion failed for points:", [cadX, cadY], e);
+      // Fallback to local translation if projection fails for this point
+    }
+  }
+
+  // Fallback: Local arbitrary transformation based on map placement anchors
   const cx = (bounds.minX + bounds.maxX) / 2;
   const cy = (bounds.minY + bounds.maxY) / 2;
 
@@ -56,6 +70,7 @@ export default function LeafletMapViewer({
   anchorLng,
   rotation,
   scale,
+  proj4String,
   onAnchorChange,
   isDragging,
   onDragStart,
@@ -225,7 +240,7 @@ export default function LeafletMapViewer({
     const layerMap = {};
     (parsedData.layers || []).forEach((l) => { layerMap[l.name] = l; });
 
-    const toLL = (x, y) => cadToLatLng(L, x, y, bounds, anchorLat, anchorLng, rotation, scale);
+    const toLL = (x, y) => cadToLatLng(L, x, y, bounds, anchorLat, anchorLng, rotation, scale, proj4String);
 
     (parsedData.entities || []).forEach((entity) => {
       if (visibleLayers && !visibleLayers.has(entity.layer)) return;
@@ -338,7 +353,7 @@ export default function LeafletMapViewer({
         // Skip unparseable entities
       }
     });
-  }, [parsedData, visibleLayers, showLabels, anchorLat, anchorLng, rotation, scale, mapReady]);
+  }, [parsedData, visibleLayers, showLabels, anchorLat, anchorLng, rotation, scale, proj4String, mapReady]);
 
   return (
     <div

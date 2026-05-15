@@ -76,6 +76,8 @@ const drawingSchema = new mongoose.Schema({
     anchorLng: { type: Number, default: null },
     rotation: { type: Number, default: 0 },
     scale: { type: Number, default: 1 },
+    proj4String: { type: String, default: null },
+    epsg: { type: String, default: null },
   },
 }, {
   timestamps: true,

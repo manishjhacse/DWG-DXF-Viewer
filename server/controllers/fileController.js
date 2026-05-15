@@ -385,13 +385,15 @@ const saveMapPlacement = async (req, res) => {
       return res.status(404).json({ error: 'Drawing not found' });
     }
 
-    const { anchorLat, anchorLng, rotation, scale } = req.body;
+    const { anchorLat, anchorLng, rotation, scale, proj4String, epsg } = req.body;
 
     drawing.mapPlacement = {
       anchorLat: anchorLat ?? null,
       anchorLng: anchorLng ?? null,
       rotation: rotation ?? 0,
       scale: scale ?? 1,
+      proj4String: proj4String ?? null,
+      epsg: epsg ?? null,
     };
 
     await drawing.save();

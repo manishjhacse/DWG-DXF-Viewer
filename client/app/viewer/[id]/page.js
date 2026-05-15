@@ -8,6 +8,7 @@ import Toolbar from "../../components/Toolbar";
 import EntityInspector from "../../components/EntityInspector";
 import MapPlacementControls from "../../components/MapPlacementControls";
 import OrthomosaicControls from "../../components/OrthomosaicControls";
+import ProjectionSelector from "../../components/ProjectionSelector";
 
 // Dynamic imports to avoid SSR issues
 const DrawingCanvas = dynamic(() => import("../../components/DrawingCanvas"), { ssr: false });
@@ -34,7 +35,12 @@ export default function ViewerPage() {
   const [anchorLng, setAnchorLng] = useState(null);
   const [mapRotation, setMapRotation] = useState(0);
   const [mapScale, setMapScale] = useState(1);
+  const [proj4String, setProj4String] = useState(null);
+  const [epsg, setEpsg] = useState(null);
   const [mapKey, setMapKey] = useState(0); // Force re-render on mode switch
+
+  // Projection Selector state
+  const [showProjectionSelector, setShowProjectionSelector] = useState(false);
 
   // Orthomosaic state
   const [orthomosaicState, setOrthomosaicState] = useState(null);
@@ -58,6 +64,8 @@ export default function ViewerPage() {
           setAnchorLng(d.mapPlacement.anchorLng);
           setMapRotation(d.mapPlacement.rotation || 0);
           setMapScale(d.mapPlacement.scale || 1);
+          setProj4String(d.mapPlacement.proj4String || null);
+          setEpsg(d.mapPlacement.epsg || null);
         } else if (d.metadata?.geolocation) {
           setAnchorLat(d.metadata.geolocation.latitude);
           setAnchorLng(d.metadata.geolocation.longitude);
@@ -180,11 +188,33 @@ export default function ViewerPage() {
         anchorLng,
         rotation: mapRotation,
         scale: mapScale,
+        proj4String,
+        epsg,
       });
       alert('Map placement saved! It will auto-load next time you open this drawing.');
     } catch (err) {
       console.error('Failed to save map placement:', err);
       alert('Failed to save map placement.');
+    }
+  }, [drawing, anchorLat, anchorLng, mapRotation, mapScale, proj4String, epsg]);
+
+  const handleSaveProjection = useCallback(async (projData) => {
+    setProj4String(projData.proj4String);
+    setEpsg(projData.epsg);
+    
+    if (!drawing?._id) return;
+    try {
+      await axios.put(`${API}/api/files/${drawing._id}/map-placement`, {
+        anchorLat,
+        anchorLng,
+        rotation: mapRotation,
+        scale: mapScale,
+        proj4String: projData.proj4String,
+        epsg: projData.epsg,
+      });
+      console.log('Projection parameters saved successfully.');
+    } catch (err) {
+      console.error('Failed to save projection parameters:', err);
     }
   }, [drawing, anchorLat, anchorLng, mapRotation, mapScale]);
 
@@ -297,9 +327,24 @@ export default function ViewerPage() {
                     ? '🌍 Extracted from GEODATA object'
                     : metadata?.geolocation?.source === 'HEADER_VARS'
                       ? '🌍 Extracted from DWG header ($LATITUDE/$LONGITUDE)'
-                      : metadata?.geolocation?.source === 'DXF_GEODATA'
-                        ? '🌍 Extracted from DXF GEODATA'
-                        : '🌍 Auto-detected from file'}
+                : metadata?.geolocation?.source === 'DXF_GEODATA'
+                  ? '🌍 Extracted from DXF GEODATA'
+                  : '🌍 Auto-detected from file'}
+              </div>
+              
+              <div style={{ marginTop: '12px' }}>
+                <button 
+                  className="btn-secondary" 
+                  style={{ width: '100%', fontSize: '12px', padding: '6px' }}
+                  onClick={() => setShowProjectionSelector(true)}
+                >
+                  ⚙️ Set Projection...
+                </button>
+                {(epsg || proj4String) && (
+                   <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                     Using: {epsg || 'Custom Projection'}
+                   </div>
+                )}
               </div>
             </div>
           )}
@@ -392,6 +437,7 @@ export default function ViewerPage() {
             anchorLng={anchorLng}
             rotation={mapRotation}
             scale={mapScale}
+            proj4String={proj4String}
             onAnchorChange={handleAnchorChange}
           />
           
@@ -424,6 +470,13 @@ export default function ViewerPage() {
         sidebarCollapsed={sidebarCollapsed}
         viewMode={viewMode}
         onToggleMapView={handleToggleMapView}
+      />
+      
+      <ProjectionSelector
+        isOpen={showProjectionSelector}
+        onClose={() => setShowProjectionSelector(false)}
+        initialDetails={drawing?.mapPlacement?.proj4String ? { proj4String: drawing.mapPlacement.proj4String, epsg: drawing.mapPlacement.epsg } : metadata?.geolocation?.projectionDetails}
+        onSave={handleSaveProjection}
       />
     </div>
   );
