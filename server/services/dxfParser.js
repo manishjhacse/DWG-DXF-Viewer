@@ -1,6 +1,6 @@
 const DxfParser = require('dxf-parser');
 const fs = require('fs');
-const { extractGeoFromDxfHeader, extractGeoFromDxfText } = require('./geoExtractor');
+const { extractGeoFromDxfText } = require('./geoExtractor');
 
 /**
  * Parse DXF content and extract entities, layers, and bounding box
@@ -76,10 +76,6 @@ const parseDxfFile = (fileContent) => {
   // Extract geolocation — Strategy 1: Scan raw DXF text for GEODATA object (in OBJECTS section)
   let geolocation = extractGeoFromDxfText(content);
 
-  // Strategy 2: Fallback to DXF header variables ($LATITUDE, $LONGITUDE)
-  if (!geolocation) {
-    geolocation = extractGeoFromDxfHeader(dxf.header);
-  }
 
   if (geolocation) {
     console.log('✅ DXF geolocation:', JSON.stringify(geolocation));

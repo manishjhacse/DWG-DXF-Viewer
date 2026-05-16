@@ -90,45 +90,6 @@ const extractGeoFromDwgRaw = (libredwg, dwgDataPtr) => {
     console.warn('⚠️ Object scan for GEODATA failed:', scanErr.message);
   }
 
-  // ─── Strategy 3: Fallback to $LATITUDE / $LONGITUDE header variables ───
-  try {
-    const latResult = libredwg.dwg_dynapi_header_value(dwgDataPtr, 'LATITUDE');
-    const lngResult = libredwg.dwg_dynapi_header_value(dwgDataPtr, 'LONGITUDE');
-
-    console.log('🌍 Header $LATITUDE result:', JSON.stringify(latResult));
-    console.log('🌍 Header $LONGITUDE result:', JSON.stringify(lngResult));
-
-    if (latResult?.success && lngResult?.success) {
-      const lat = typeof latResult.data === 'number' ? latResult.data : parseFloat(latResult.data);
-      const lng = typeof lngResult.data === 'number' ? lngResult.data : parseFloat(lngResult.data);
-
-      if (!isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0) && isValidLatLng(lat, lng)) {
-        geolocation = {
-          latitude: lat,
-          longitude: lng,
-          northDirection: 0,
-          coordinateSystem: 'WGS84',
-          projectionDetails: null, // Basic lat/lng fallback lacks detailed projection info
-          designPoint: null,
-          referencePoint: null,
-          source: 'HEADER_VARS',
-        };
-
-        // Also try to read $NORTHDIRECTION
-        try {
-          const northResult = libredwg.dwg_dynapi_header_value(dwgDataPtr, 'NORTHDIRECTION');
-          if (northResult?.success && typeof northResult.data === 'number') {
-            geolocation.northDirection = northResult.data;
-          }
-        } catch (e) { /* optional field */ }
-
-        console.log('✅ Extracted geolocation from DWG header vars (Fallback):', geolocation);
-        return geolocation;
-      }
-    }
-  } catch (headerErr) {
-    console.warn('⚠️ Header variable extraction failed:', headerErr.message);
-  }
 
 
   console.log('ℹ️ No geolocation data found in DWG file');
@@ -369,37 +330,6 @@ const extractProj4FromWKT = (wkt) => {
   return null;
 };
 
-/**
- * Extract geolocation from DXF header variables.
- * @param {object} dxfHeader - The parsed DXF header object
- * @returns {object|null} Geolocation data or null
- */
-const extractGeoFromDxfHeader = (dxfHeader) => {
-  if (!dxfHeader) return null;
-
-  // $LATITUDE and $LONGITUDE are standard DXF header variables
-  const lat = dxfHeader['$LATITUDE'] ?? dxfHeader.LATITUDE ?? dxfHeader.latitude;
-  const lng = dxfHeader['$LONGITUDE'] ?? dxfHeader.LONGITUDE ?? dxfHeader.longitude;
-
-  if (lat != null && lng != null && !isNaN(lat) && !isNaN(lng) && isValidLatLng(lat, lng) && (lat !== 0 || lng !== 0)) {
-    let northDir = 0;
-    const nd = dxfHeader['$NORTHDIRECTION'] ?? dxfHeader.NORTHDIRECTION;
-    if (nd != null && !isNaN(nd)) northDir = nd;
-
-    console.log(`✅ DXF header geolocation: lat=${lat}, lng=${lng}, north=${northDir}`);
-    return {
-      latitude: lat,
-      longitude: lng,
-      northDirection: northDir,
-      coordinateSystem: null,
-      designPoint: null,
-      referencePoint: null,
-      source: 'HEADER_VARS',
-    };
-  }
-
-  return null;
-};
 
 /**
  * Extract geolocation from DXF raw text by scanning for GEODATA object.
@@ -630,7 +560,6 @@ const parseProjectionDetails = (crsDef) => {
 
 module.exports = {
   extractGeoFromDwgRaw,
-  extractGeoFromDxfHeader,
   extractGeoFromDxfText,
   convertProjectedToWGS84,
   isValidLatLng,
