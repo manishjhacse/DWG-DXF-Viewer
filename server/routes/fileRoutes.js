@@ -11,7 +11,6 @@ const {
   uploadOrthomosaic,
   updateOrthomosaicAlignment,
   proxyOrthomosaicImage,
-  proxyOrthomosaicImage,
   saveMapPlacement,
   saveUtmZone
 } = require('../controllers/fileController');
