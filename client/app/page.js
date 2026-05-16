@@ -122,13 +122,13 @@ export default function HomePage() {
                       {file.metadata.entityCount} entities
                     </div>
                   )}
-                  {file.metadata?.layers?.length > 0 && (
+                  {(file.metadata?.layerCount > 0 || file.metadata?.layers?.length > 0) && (
                     <div className="file-card-meta-item">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <polygon points="12 2 2 7 12 12 22 7 12 2"/>
                         <polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
                       </svg>
-                      {file.metadata.layers.length} layers
+                      {file.metadata.layerCount || file.metadata.layers?.length || 0} layers
                     </div>
                   )}
                   <span className={`status-badge ${file.status}`}>

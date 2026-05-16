@@ -1,4 +1,5 @@
 const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { Upload } = require('@aws-sdk/lib-storage');
 const fs = require('fs');
 const path = require('path');
@@ -93,4 +94,18 @@ const deleteFromS3 = async (s3Key) => {
   await s3Client.send(command);
 };
 
-module.exports = { s3Client, uploadToS3, downloadFromS3, getDataFromS3, deleteFromS3 };
+/**
+ * Generate a presigned URL for an S3 object
+ * @param {string} s3Key - S3 object key
+ * @param {number} expiresIn - Expiration in seconds (default 1 hour)
+ * @returns {Promise<string>}
+ */
+const getSignedUrlForObject = async (s3Key, expiresIn = 3600) => {
+  const command = new GetObjectCommand({
+    Bucket: BUCKET,
+    Key: s3Key,
+  });
+  return await getSignedUrl(s3Client, command, { expiresIn });
+};
+
+module.exports = { s3Client, uploadToS3, downloadFromS3, getDataFromS3, deleteFromS3, getSignedUrlForObject };

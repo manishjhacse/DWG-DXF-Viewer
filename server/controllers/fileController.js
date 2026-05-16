@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const Drawing = require('../models/Drawing');
-const { uploadToS3, deleteFromS3, getDataFromS3 } = require('../config/s3');
+const { uploadToS3, deleteFromS3, getDataFromS3, getSignedUrlForObject } = require('../config/s3');
 const { parseDxfFile } = require('../services/dxfParser');
 const { parseDwgFile } = require('../services/converter');
 const { parseProjectionDetails } = require('../services/geoExtractor');
@@ -76,16 +76,36 @@ const processDxfFile = async (drawing, buffer, prjText = null) => {
     const parsedData = parseDxfFile(buffer);
     console.log(`[Server Log] ✅ DXF parsing complete. Extracted ${parsedData.entityCount} entities and ${parsedData.layers.length} layers.`);
 
-    // Instead of storing parsedData in Mongo, we upload it to S3 as JSON
-    const jsonS3Key = `drawings/json/${drawing._id}/data.json`;
-    console.log(`[Server Log] ☁️ Uploading parsed JSON to S3...`);
-    const jsonBuffer = Buffer.from(JSON.stringify(parsedData));
-    await uploadToS3(jsonBuffer, jsonS3Key, 'application/json');
+    // Instead of stringifying the entire object (which hits V8 memory limits), we stream NDJSON
+    const jsonS3Key = `drawings/json/${drawing._id}/data.ndjson`;
+    console.log(`[Server Log] ☁️ Streaming parsed NDJSON to S3...`);
+    
+    const { PassThrough } = require('stream');
+    const pass = new PassThrough();
+    const uploadPromise = uploadToS3(pass, jsonS3Key, 'application/x-ndjson');
+
+    // Write metadata as first line
+    pass.write(JSON.stringify({
+      type: 'metadata',
+      layers: parsedData.layers,
+      bounds: parsedData.bounds,
+      blocks: parsedData.blocks,
+      geolocation: parsedData.geolocation
+    }) + '\n');
+
+    // Write entities line by line
+    for (const ent of parsedData.entities) {
+      pass.write(JSON.stringify(ent) + '\n');
+    }
+    pass.end();
+
+    await uploadPromise;
     drawing.jsonS3Key = jsonS3Key;
 
     drawing.status = 'ready';
     drawing.metadata = {
       layers: parsedData.layers.map((l) => l.name),
+      layerCount: parsedData.layers.length,
       entityCount: parsedData.entityCount,
       bounds: parsedData.bounds,
     };
@@ -161,11 +181,30 @@ const processDwgFile = async (drawing, buffer, originalName, prjText = null) => 
       throw parseErr;
     }
 
-    // Instead of storing parsedData in Mongo, we upload it to S3 as JSON
-    const jsonS3Key = `drawings/json/${drawing._id}/data.json`;
-    console.log(`[Server Log] ☁️ Uploading parsed JSON to S3...`);
-    const jsonBuffer = Buffer.from(JSON.stringify(parsedData));
-    await uploadToS3(jsonBuffer, jsonS3Key, 'application/json');
+    // Instead of stringifying the entire object (which hits V8 memory limits), we stream NDJSON
+    const jsonS3Key = `drawings/json/${drawing._id}/data.ndjson`;
+    console.log(`[Server Log] ☁️ Streaming parsed NDJSON to S3...`);
+
+    const { PassThrough } = require('stream');
+    const pass = new PassThrough();
+    const uploadPromise = uploadToS3(pass, jsonS3Key, 'application/x-ndjson');
+
+    // Write metadata as first line
+    pass.write(JSON.stringify({
+      type: 'metadata',
+      layers: parsedData.layers,
+      bounds: parsedData.bounds,
+      blocks: parsedData.blocks,
+      geolocation: parsedData.geolocation
+    }) + '\n');
+
+    // Write entities line by line
+    for (const ent of parsedData.entities) {
+      pass.write(JSON.stringify(ent) + '\n');
+    }
+    pass.end();
+
+    await uploadPromise;
     drawing.jsonS3Key = jsonS3Key;
 
     drawing.status = 'ready';
@@ -211,22 +250,14 @@ const getFile = async (req, res) => {
     // Convert to plain object to attach parsedData
     const drawingObj = drawing.toObject();
 
-    // If there is a sidecar JSON file on S3, fetch it
+    // If there is a sidecar JSON file on S3, provide a signed URL instead of fetching it
+    // This offloads the heavy data transfer to S3 and avoids server-side JSON parsing overhead
     if (drawing.jsonS3Key) {
       try {
-        console.log(`[Server Log] ☁️ Fetching parsed JSON from S3 (${drawing.jsonS3Key})...`);
-        const startTime = Date.now();
-        const jsonContent = await getDataFromS3(drawing.jsonS3Key);
-        console.log("done1");
-        const downloadTime = Date.now() - startTime;
-        console.log(`[Server Log] 📥 Downloaded ${Math.round(jsonContent.length / 1024)}KB from S3 in ${downloadTime}ms`);
-        
-        console.log(`[Server Log] ⚙️ Parsing JSON data...`);
-        const parseStart = Date.now();
-        drawingObj.parsedData = JSON.parse(jsonContent);
-        console.log(`[Server Log] ✅ JSON parsed in ${Date.now() - parseStart}ms`);
+        console.log(`[Server Log] ☁️ Generating signed URL for parsed JSON: ${drawing.jsonS3Key}`);
+        drawingObj.parsedDataUrl = await getSignedUrlForObject(drawing.jsonS3Key, 3600); // 1 hour expiry
       } catch (s3Err) {
-        console.error(`[Server Log] ❌ Failed to fetch/parse JSON from S3:`, s3Err.message);
+        console.error(`[Server Log] ❌ Failed to generate signed URL for S3:`, s3Err.message);
       }
     }
 
@@ -242,9 +273,10 @@ const getFile = async (req, res) => {
  */
 const listFiles = async (req, res) => {
   try {
-    const drawings = await Drawing.find()
+    // Increase limit to 1000 and exclude heavy layers array to speed up the list view
+    const drawings = await Drawing.find({}, { 'metadata.layers': 0 })
       .sort({ createdAt: -1 })
-      .limit(50);
+      .limit(1000);
 
     res.json({ drawings });
   } catch (error) {

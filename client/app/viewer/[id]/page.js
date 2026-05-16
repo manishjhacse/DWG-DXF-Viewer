@@ -50,7 +50,65 @@ export default function ViewerPage() {
     const fetchDrawing = async () => {
       try {
         const res = await axios.get(`${API}/api/files/${params.id}`);
-        const d = res.data.drawing;
+        let d = res.data.drawing;
+
+        // If the server provides a signed URL for the heavy JSON data, fetch it directly
+        if (d.parsedDataUrl && !d.parsedData) {
+          console.log("[Viewer] ☁️ Fetching heavy NDJSON data from S3 signed URL...");
+          const startTime = Date.now();
+          
+          // Use fetch and stream to avoid massive string allocation
+          const response = await fetch(d.parsedDataUrl);
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder("utf-8");
+          
+          let parsedData = { entities: [], layers: [], bounds: null, blocks: {} };
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep the last incomplete line in the buffer
+            
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              try {
+                const obj = JSON.parse(line);
+                if (obj.type === 'metadata') {
+                  parsedData.layers = obj.layers || [];
+                  parsedData.bounds = obj.bounds || null;
+                  parsedData.blocks = obj.blocks || {};
+                  // If metadata didn't have geolocation, we could extract it, but it's handled via drawing.metadata
+                } else {
+                  // It's an entity
+                  parsedData.entities.push(obj);
+                }
+              } catch(e) {
+                 console.warn("Failed to parse NDJSON line:", e.message);
+              }
+            }
+          }
+          
+          if (buffer.trim()) {
+              try {
+                const obj = JSON.parse(buffer);
+                if (obj.type === 'metadata') {
+                  parsedData.layers = obj.layers || [];
+                  parsedData.bounds = obj.bounds || null;
+                  parsedData.blocks = obj.blocks || {};
+                } else {
+                  parsedData.entities.push(obj);
+                }
+              } catch(e) {}
+          }
+          
+          d.parsedData = parsedData;
+          console.log(`[Viewer] ✅ Fetched and parsed ${parsedData.entities.length} entities in ${Date.now() - startTime}ms`);
+        }
+        
         setDrawing(d);
 
         // Initialize all layers as visible
@@ -170,11 +228,15 @@ export default function ViewerPage() {
       if (prev === "2d") return "orthomosaic";
       if (prev === "orthomosaic") {
         setMapKey(k => k + 1);
+        // Automatically pop up projection selector if no map placement is saved yet
+        if (!proj4String && anchorLat == null) {
+          setShowProjectionSelector(true);
+        }
         return "map";
       }
       return "2d";
     });
-  }, []);
+  }, [proj4String, anchorLat]);
 
   const handleUploadOrthomosaic = async (filesToUpload) => {
     setIsUploadingOrthomosaic(true);

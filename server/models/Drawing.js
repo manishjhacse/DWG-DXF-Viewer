@@ -38,6 +38,7 @@ const drawingSchema = new mongoose.Schema({
   },
   metadata: {
     layers: [String],
+    layerCount: { type: Number, default: 0 },
     entityCount: { type: Number, default: 0 },
     bounds: {
       minX: Number,

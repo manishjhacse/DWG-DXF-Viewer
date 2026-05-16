@@ -44,6 +44,11 @@ const cadToLatLng = (L, cadX, cadY, bounds, anchorLat, anchorLng, rotation, scal
   }
 
   // Fallback: Local arbitrary transformation based on map placement anchors
+  if (anchorLat == null || anchorLng == null) {
+     // If no anchor and no valid proj4, just return [0,0] to avoid crash
+     return L.latLng(0, 0);
+  }
+
   const cx = (bounds.minX + bounds.maxX) / 2;
   const cy = (bounds.minY + bounds.maxY) / 2;
 
@@ -175,43 +180,65 @@ export default function LeafletMapViewer({
   useEffect(() => {
     const L = LRef.current;
     const map = mapRef.current;
-    if (!L || !map || !mapReady || anchorLat == null || anchorLng == null) return;
+    if (!L || !map || !mapReady) return;
+
+    let centerLat = anchorLat;
+    let centerLng = anchorLng;
+
+    // If we have a projection string, we can calculate the true center of the drawing
+    // without needing a manual anchor point.
+    if (proj4String && parsedData?.bounds) {
+       const cx = (parsedData.bounds.minX + parsedData.bounds.maxX) / 2;
+       const cy = (parsedData.bounds.minY + parsedData.bounds.maxY) / 2;
+       try {
+         const [lng, lat] = proj4(proj4String, 'EPSG:4326', [cx, cy]);
+         centerLat = lat;
+         centerLng = lng;
+       } catch (e) {
+         console.warn("Could not calculate center from proj4:", e);
+       }
+    }
+
+    if (centerLat == null || centerLng == null) return;
 
     // Remove old marker
     if (anchorMarkerRef.current) {
       map.removeLayer(anchorMarkerRef.current);
     }
 
-    // Custom anchor icon
-    const anchorIcon = L.divIcon({
-      className: "anchor-marker",
-      html: `<div class="anchor-marker-inner">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" width="24" height="24">
-          <circle cx="12" cy="10" r="3"/>
-          <path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/>
-        </svg>
-      </div>`,
-      iconSize: [32, 32],
-      iconAnchor: [16, 32],
-    });
+    // Only show the draggable anchor marker if we are relying on manual placement
+    if (anchorLat != null && anchorLng != null) {
+      // Custom anchor icon
+      const anchorIcon = L.divIcon({
+        className: "anchor-marker",
+        html: `<div class="anchor-marker-inner">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" width="24" height="24">
+            <circle cx="12" cy="10" r="3"/>
+            <path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/>
+          </svg>
+        </div>`,
+        iconSize: [32, 32],
+        iconAnchor: [16, 32],
+      });
 
-    const marker = L.marker([anchorLat, anchorLng], {
-      icon: anchorIcon,
-      draggable: true,
-      zIndexOffset: 1000,
-    }).addTo(map);
+      const marker = L.marker([anchorLat, anchorLng], {
+        icon: anchorIcon,
+        draggable: true,
+        zIndexOffset: 1000,
+      }).addTo(map);
 
-    // Drag to reposition
-    marker.on("dragend", (e) => {
-      const pos = e.target.getLatLng();
-      if (onAnchorChange) {
-        onAnchorChange(pos.lat, pos.lng);
-      }
-    });
+      // Drag to reposition
+      marker.on("dragend", (e) => {
+        const pos = e.target.getLatLng();
+        if (onAnchorChange) {
+          onAnchorChange(pos.lat, pos.lng);
+        }
+      });
 
-    anchorMarkerRef.current = marker;
+      anchorMarkerRef.current = marker;
+    }
 
-    // Fly to the anchor
+    // Fly to the calculated center
     const drawingWidth = parsedData?.bounds
       ? ((parsedData.bounds.maxX - parsedData.bounds.minX) * scale) / 111320
       : 0.01;
@@ -220,19 +247,23 @@ export default function LeafletMapViewer({
       : 0.01;
     const maxSpan = Math.max(drawingWidth, drawingHeight, 0.002);
 
-    map.flyTo([anchorLat, anchorLng], map.getBoundsZoom(
+    map.flyTo([centerLat, centerLng], map.getBoundsZoom(
       L.latLngBounds(
-        [anchorLat - maxSpan, anchorLng - maxSpan],
-        [anchorLat + maxSpan, anchorLng + maxSpan]
+        [centerLat - maxSpan, centerLng - maxSpan],
+        [centerLat + maxSpan, centerLng + maxSpan]
       )
     ), { duration: 1.2 });
-  }, [anchorLat, anchorLng, mapReady]);
+  }, [anchorLat, anchorLng, mapReady, proj4String, parsedData]);
 
   // Render CAD entities on map
   useEffect(() => {
     const L = LRef.current;
     const drawingLayer = drawingLayerRef.current;
-    if (!L || !drawingLayer || !mapReady || !parsedData || anchorLat == null || anchorLng == null) return;
+    
+    // We can render if we have a proj4String, OR if we have manual anchors
+    const canRender = proj4String || (anchorLat != null && anchorLng != null);
+    
+    if (!L || !drawingLayer || !mapReady || !parsedData || !canRender) return;
 
     drawingLayer.clearLayers();
 
@@ -242,20 +273,32 @@ export default function LeafletMapViewer({
 
     const toLL = (x, y) => cadToLatLng(L, x, y, bounds, anchorLat, anchorLng, rotation, scale, proj4String);
 
+    const colorLineBatches = {};
+    const colorPolygonBatches = {};
+
+    const addLineBatch = (color, latLngs) => {
+      if (!colorLineBatches[color]) colorLineBatches[color] = [];
+      colorLineBatches[color].push(latLngs);
+    };
+
+    const addPolygonBatch = (color, latLngs) => {
+      if (!colorPolygonBatches[color]) colorPolygonBatches[color] = [];
+      colorPolygonBatches[color].push(latLngs);
+    };
+
     (parsedData.entities || []).forEach((entity) => {
       if (visibleLayers && !visibleLayers.has(entity.layer)) return;
 
       const color = getColorForEntity(entity, layerMap);
-      const lineOpts = { color, weight: 2, opacity: 0.85 };
 
       try {
         switch (entity.type) {
           case "LINE":
             if (entity.startPoint && entity.endPoint) {
-              L.polyline([
+              addLineBatch(color, [
                 toLL(entity.startPoint.x, entity.startPoint.y),
                 toLL(entity.endPoint.x, entity.endPoint.y),
-              ], lineOpts).addTo(drawingLayer);
+              ]);
             }
             break;
 
@@ -264,7 +307,7 @@ export default function LeafletMapViewer({
             if (entity.vertices?.length > 1) {
               const pts = entity.vertices.map((v) => toLL(v.x, v.y));
               if (entity.closed && pts.length > 0) pts.push(pts[0]);
-              L.polyline(pts, lineOpts).addTo(drawingLayer);
+              addLineBatch(color, pts);
             }
             break;
 
@@ -277,7 +320,7 @@ export default function LeafletMapViewer({
                 const cy = entity.center.y + entity.radius * Math.sin(angle);
                 circlePts.push(toLL(cx, cy));
               }
-              L.polyline(circlePts, lineOpts).addTo(drawingLayer);
+              addLineBatch(color, circlePts);
             }
             break;
 
@@ -295,7 +338,7 @@ export default function LeafletMapViewer({
                   entity.center.y + entity.radius * Math.sin(angle)
                 ));
               }
-              L.polyline(arcPts, lineOpts).addTo(drawingLayer);
+              addLineBatch(color, arcPts);
             }
             break;
 
@@ -332,7 +375,7 @@ export default function LeafletMapViewer({
           case "3DFACE":
             if (entity.points?.length >= 3) {
               const polyPts = entity.points.map((p) => toLL(p.x, p.y));
-              L.polygon(polyPts, { ...lineOpts, fillColor: color, fillOpacity: 0.15 }).addTo(drawingLayer);
+              addPolygonBatch(color, polyPts);
             }
             break;
 
@@ -342,7 +385,7 @@ export default function LeafletMapViewer({
                 b.forEach((path) => {
                   if (path.length >= 3) {
                     const pts = path.map((p) => toLL(p.x, p.y));
-                    L.polygon(pts, { color, weight: 1, fillColor: color, fillOpacity: 0.1 }).addTo(drawingLayer);
+                    addPolygonBatch(color, pts);
                   }
                 })
               );
@@ -352,6 +395,16 @@ export default function LeafletMapViewer({
       } catch (e) {
         // Skip unparseable entities
       }
+    });
+
+    // Render accumulated multi-polylines (massive performance optimization)
+    Object.keys(colorLineBatches).forEach(color => {
+      L.polyline(colorLineBatches[color], { color, weight: 2, opacity: 0.85 }).addTo(drawingLayer);
+    });
+
+    // Render accumulated multi-polygons
+    Object.keys(colorPolygonBatches).forEach(color => {
+      L.polygon(colorPolygonBatches[color], { color, weight: 1, fillColor: color, fillOpacity: 0.15 }).addTo(drawingLayer);
     });
   }, [parsedData, visibleLayers, showLabels, anchorLat, anchorLng, rotation, scale, proj4String, mapReady]);
 

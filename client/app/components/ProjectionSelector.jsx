@@ -102,6 +102,34 @@ export default function ProjectionSelector({ isOpen, onClose, initialDetails, on
           </div>
 
           <hr style={{ margin: '15px 0', borderColor: 'var(--border-color)' }} />
+          
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: 'var(--text-secondary)' }}>Quick Presets (India):</label>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {[42, 43, 44, 45, 46, 47].map(z => (
+                <button
+                  key={z}
+                  onClick={() => {
+                    setIsCustom(false);
+                    setProjectionType("UTM");
+                    setZone(z);
+                    setHemisphere("N");
+                    setDatum("WGS84");
+                    setUnits("m");
+                    setEpsgSearch(`326${z}`);
+                  }}
+                  style={{
+                    padding: '4px 8px', fontSize: '12px', borderRadius: '4px',
+                    background: (!isCustom && zone == z && hemisphere === 'N') ? 'var(--primary-color)' : 'var(--bg-primary)',
+                    color: (!isCustom && zone == z && hemisphere === 'N') ? '#fff' : 'var(--text-primary)',
+                    border: '1px solid var(--border-color)', cursor: 'pointer'
+                  }}
+                >
+                  UTM {z}N
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div style={{ display: 'flex', gap: '15px', marginBottom: '15px', fontSize: '14px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
