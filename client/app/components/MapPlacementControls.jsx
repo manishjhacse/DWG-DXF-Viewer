@@ -12,11 +12,14 @@ export default function MapPlacementControls({
   onSearchPlace,
   onAnchorChange,
   onSavePlacement,
+  onSaveUtmZone,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [utmZone, setUtmZone] = useState("");
+  const [hemisphere, setHemisphere] = useState("N");
   const searchTimeoutRef = useRef(null);
 
   const hasPlacement = anchorLat != null && anchorLng != null;
@@ -186,6 +189,50 @@ export default function MapPlacementControls({
                 </div>
               )}
             </div>
+          </div>
+
+          {/* UTM Zone Placement */}
+          <div className="map-controls-section" style={{ marginTop: '16px' }}>
+            <div className="map-controls-label">Auto Align via UTM Zone</div>
+            <div className="map-controls-coords" style={{ marginBottom: '8px' }}>
+              <div className="coord-item">
+                <span className="coord-label">Zone</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="60"
+                  className="coord-input"
+                  placeholder="1-60"
+                  value={utmZone}
+                  onChange={(e) => setUtmZone(e.target.value)}
+                />
+              </div>
+              <div className="coord-item">
+                <span className="coord-label">Hemi</span>
+                <select 
+                  className="coord-input" 
+                  value={hemisphere} 
+                  onChange={(e) => setHemisphere(e.target.value)}
+                  style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: 'none', outline: 'none' }}
+                >
+                  <option value="N">North (N)</option>
+                  <option value="S">South (S)</option>
+                </select>
+              </div>
+            </div>
+            {onSaveUtmZone && (
+              <button 
+                className="map-btn map-btn-primary" 
+                onClick={() => onSaveUtmZone(utmZone, hemisphere)}
+                disabled={!utmZone || utmZone < 1 || utmZone > 60}
+                style={{ width: '100%', justifyContent: 'center' }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                  <circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><line x1="2" y1="12" x2="22" y2="12"/>
+                </svg>
+                Align & Save
+              </button>
+            )}
           </div>
 
           {/* Placement hint */}

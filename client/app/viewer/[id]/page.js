@@ -312,6 +312,27 @@ export default function ViewerPage() {
     }
   }, [drawing, anchorLat, anchorLng, mapRotation, mapScale, proj4String, epsg]);
 
+  const handleSaveUtmZone = useCallback(async (utmZone, hemisphere) => {
+    if (!drawing?._id) return;
+    try {
+      const res = await axios.put(`${API}/api/files/${drawing._id}/utm-zone`, {
+        utmZone,
+        hemisphere
+      });
+      const newPlacement = res.data.mapPlacement;
+      setProj4String(newPlacement.proj4String);
+      setAnchorLat(newPlacement.anchorLat);
+      setAnchorLng(newPlacement.anchorLng);
+      // reset rotation/scale
+      setMapRotation(0);
+      setMapScale(1);
+      alert('UTM Zone saved and perfectly aligned based on drawing entities!');
+    } catch (err) {
+      console.error('Failed to save UTM zone:', err);
+      alert('Failed to save UTM zone.');
+    }
+  }, [drawing]);
+
   const handleSaveProjection = useCallback(async (projData) => {
     setProj4String(projData.proj4String);
     setEpsg(projData.epsg);
@@ -567,6 +588,7 @@ export default function ViewerPage() {
             onSearchPlace={handleSearchPlace}
             onAnchorChange={handleAnchorChange}
             onSavePlacement={handleSaveMapPlacement}
+            onSaveUtmZone={handleSaveUtmZone}
           />
         </div>
       )}

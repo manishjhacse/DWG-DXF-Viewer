@@ -79,6 +79,14 @@ const drawingSchema = new mongoose.Schema({
     scale: { type: Number, default: 1 },
     proj4String: { type: String, default: null },
     epsg: { type: String, default: null },
+    utmZone: { type: Number, default: null },
+    hemisphere: { type: String, enum: ['N', 'S', null], default: null },
+    controlPoints: [{
+      x: Number,
+      y: Number,
+      lat: Number,
+      lng: Number
+    }]
   },
 }, {
   timestamps: true,

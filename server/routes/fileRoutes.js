@@ -11,14 +11,12 @@ const {
   uploadOrthomosaic,
   updateOrthomosaicAlignment,
   proxyOrthomosaicImage,
-  saveMapPlacement
+  proxyOrthomosaicImage,
+  saveMapPlacement,
+  saveUtmZone
 } = require('../controllers/fileController');
-
-// Upload a file (along with an optional .prj sidecar file)
-router.post('/upload', upload.fields([
-  { name: 'file', maxCount: 1 },
-  { name: 'prj', maxCount: 1 }
-]), asyncHandler(uploadFile));
+// Upload a file
+router.post('/upload', upload.single('file'), asyncHandler(uploadFile));
 
 // List all drawings
 router.get('/', asyncHandler(listFiles));
@@ -40,6 +38,9 @@ router.put('/:id/orthomosaic/align', express.json(), asyncHandler(updateOrthomos
 
 // Save map placement (anchor lat/lng, rotation, scale)
 router.put('/:id/map-placement', express.json(), asyncHandler(saveMapPlacement));
+
+// Save UTM Zone and calculate placement
+router.put('/:id/utm-zone', express.json(), asyncHandler(saveUtmZone));
 
 module.exports = router;
 

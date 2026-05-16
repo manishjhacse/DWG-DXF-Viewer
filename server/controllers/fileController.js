@@ -12,8 +12,7 @@ const { parseProjectionDetails } = require('../services/geoExtractor');
  */
 const uploadFile = async (req, res) => {
   try {
-    const mainFile = req.files && req.files['file'] ? req.files['file'][0] : null;
-    const prjFile = req.files && req.files['prj'] ? req.files['prj'][0] : null;
+    const mainFile = req.file;
 
     if (!mainFile) {
       return res.status(400).json({ error: 'No CAD file uploaded' });
@@ -21,12 +20,6 @@ const uploadFile = async (req, res) => {
 
     const { originalname, buffer, size } = mainFile;
     const ext = originalname.split('.').pop().toLowerCase();
-    
-    let prjText = null;
-    if (prjFile) {
-      prjText = prjFile.buffer.toString('utf-8');
-      console.log(`[Server Log] 📄 Received sidecar .prj file: ${prjFile.originalname}`);
-    }
 
     console.log(`[Server Log] 📥 Received upload request for file: ${originalname} (${size} bytes)`);
 
@@ -43,10 +36,10 @@ const uploadFile = async (req, res) => {
     // Process based on file type
     if (ext === 'dxf') {
       console.log(`[Server Log] ⚙️ Processing DXF file...`);
-      await processDxfFile(drawing, buffer, prjText);
+      await processDxfFile(drawing, buffer);
     } else if (ext === 'dwg') {
       console.log(`[Server Log] ⚙️ Processing DWG file...`);
-      await processDwgFile(drawing, buffer, originalname, prjText);
+      await processDwgFile(drawing, buffer, originalname);
     } else {
       console.warn(`[Server Log] ⚠️ Unsupported file extension: ${ext}`);
     }
@@ -70,7 +63,7 @@ const uploadFile = async (req, res) => {
 /**
  * Process a DXF file: parse and store
  */
-const processDxfFile = async (drawing, buffer, prjText = null) => {
+const processDxfFile = async (drawing, buffer) => {
   try {
     console.log(`[Server Log] 🛠️ Starting DXF parsing for ${drawing.originalName}`);
     const parsedData = parseDxfFile(buffer);
@@ -113,14 +106,6 @@ const processDxfFile = async (drawing, buffer, prjText = null) => {
       drawing.metadata.geolocation = parsedData.geolocation;
     }
     
-    // Override projection details if a .prj sidecar file was provided
-    if (prjText) {
-      if (!drawing.metadata.geolocation) drawing.metadata.geolocation = {};
-      drawing.metadata.geolocation.source = 'SIDECAR_PRJ';
-      drawing.metadata.geolocation.projectionDetails = parseProjectionDetails(prjText);
-      console.log(`[Server Log] ✅ Applied exact projection metadata from sidecar .prj file`);
-    }
-
     // Upload to S3 for persistence
     const s3Key = `drawings/dxf/${drawing._id}/${drawing.originalName}`;
     try {
@@ -130,14 +115,6 @@ const processDxfFile = async (drawing, buffer, prjText = null) => {
       console.log(`[Server Log] ✅ S3 upload successful: ${s3Key}`);
     } catch (s3Err) {
       console.warn(`[Server Log] ⚠️ S3 upload failed:`, s3Err.message);
-    }
-
-    // Override projection details if a .prj sidecar file was provided
-    if (prjText) {
-      if (!drawing.metadata.geolocation) drawing.metadata.geolocation = {};
-      drawing.metadata.geolocation.source = 'SIDECAR_PRJ';
-      drawing.metadata.geolocation.projectionDetails = parseProjectionDetails(prjText);
-      console.log(`[Server Log] ✅ Applied exact projection metadata from sidecar .prj file`);
     }
 
     await drawing.save();
@@ -152,7 +129,7 @@ const processDxfFile = async (drawing, buffer, prjText = null) => {
 /**
  * Process a DWG file: upload to S3, then parse directly with WASM
  */
-const processDwgFile = async (drawing, buffer, originalName, prjText = null) => {
+const processDwgFile = async (drawing, buffer, originalName) => {
   try {
     // Step 1: Upload DWG to S3
     const s3Key = `drawings/dwg/${drawing._id}/${originalName}`;
@@ -215,14 +192,6 @@ const processDwgFile = async (drawing, buffer, originalName, prjText = null) => 
     };
     if (parsedData.geolocation) {
       drawing.metadata.geolocation = parsedData.geolocation;
-    }
-
-    // Override projection details if a .prj sidecar file was provided
-    if (prjText) {
-      if (!drawing.metadata.geolocation) drawing.metadata.geolocation = {};
-      drawing.metadata.geolocation.source = 'SIDECAR_PRJ';
-      drawing.metadata.geolocation.projectionDetails = parseProjectionDetails(prjText);
-      console.log(`[Server Log] ✅ Applied exact projection metadata from sidecar .prj file`);
     }
 
     await drawing.save();
@@ -505,4 +474,111 @@ const saveMapPlacement = async (req, res) => {
   }
 };
 
-module.exports = { uploadFile, getFile, listFiles, deleteFile, uploadOrthomosaic, updateOrthomosaicAlignment, proxyOrthomosaicImage, saveMapPlacement };
+/**
+ * PUT /api/files/:id/utm-zone
+ * Save UTM Zone and calculate placement using 10 random control points
+ */
+const saveUtmZone = async (req, res) => {
+  try {
+    const drawing = await Drawing.findById(req.params.id);
+    if (!drawing) {
+      return res.status(404).json({ error: 'Drawing not found' });
+    }
+
+    const { utmZone, hemisphere } = req.body;
+    if (!utmZone || !hemisphere) {
+      return res.status(400).json({ error: 'utmZone and hemisphere are required' });
+    }
+
+    const proj4String = `+proj=utm +zone=${utmZone} ${hemisphere === 'S' ? '+south ' : ''}+datum=WGS84 +units=m +no_defs`;
+    
+    // Fetch JSON from S3 to extract 10 random control points
+    const controlPoints = [];
+    if (drawing.jsonS3Key) {
+      const { GetObjectCommand } = require('@aws-sdk/client-s3');
+      const { s3Client } = require('../config/s3');
+      const proj4 = require('proj4');
+      const readline = require('readline');
+
+      const command = new GetObjectCommand({
+        Bucket: process.env.S3_BUCKET_NAME,
+        Key: drawing.jsonS3Key,
+      });
+
+      try {
+        const s3Response = await s3Client.send(command);
+        const rl = readline.createInterface({
+          input: s3Response.Body,
+          crlfDelay: Infinity
+        });
+
+        for await (const line of rl) {
+          if (!line.trim()) continue;
+          try {
+            const entity = JSON.parse(line);
+            
+            // Skip metadata
+            if (entity.type === 'metadata') continue;
+
+            // Extract x, y based on entity type
+            let x, y;
+            if (entity.position) {
+              x = entity.position.x;
+              y = entity.position.y;
+            } else if (entity.startPoint) {
+              x = entity.startPoint.x;
+              y = entity.startPoint.y;
+            } else if (entity.center) {
+              x = entity.center.x;
+              y = entity.center.y;
+            } else if (entity.vertices && entity.vertices.length > 0) {
+              x = entity.vertices[0].x;
+              y = entity.vertices[0].y;
+            }
+
+            if (x !== undefined && y !== undefined && !isNaN(x) && !isNaN(y)) {
+              // Only add if not too close to existing points to get a good spread
+              const isDuplicate = controlPoints.some(cp => Math.abs(cp.x - x) < 0.1 && Math.abs(cp.y - y) < 0.1);
+              
+              if (!isDuplicate) {
+                try {
+                  const [lng, lat] = proj4(proj4String, 'EPSG:4326', [x, y]);
+                  controlPoints.push({ x, y, lat, lng });
+                  
+                  // Stop once we have 10 points
+                  if (controlPoints.length >= 10) {
+                    rl.close();
+                    break;
+                  }
+                } catch (e) {
+                  // Skip invalid projections
+                }
+              }
+            }
+          } catch (e) {
+            // Ignore JSON parse errors for a single line
+          }
+        }
+      } catch (e) {
+        console.error('Failed to extract control points from S3 stream:', e);
+      }
+    }
+
+    drawing.mapPlacement = {
+      ...drawing.mapPlacement,
+      utmZone,
+      hemisphere,
+      proj4String,
+      controlPoints,
+      anchorLat: controlPoints.length > 0 ? controlPoints[0].lat : drawing.mapPlacement?.anchorLat,
+      anchorLng: controlPoints.length > 0 ? controlPoints[0].lng : drawing.mapPlacement?.anchorLng,
+    };
+
+    await drawing.save();
+    res.json({ message: 'UTM Zone saved and placement calculated', mapPlacement: drawing.mapPlacement });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+module.exports = { uploadFile, getFile, listFiles, deleteFile, uploadOrthomosaic, updateOrthomosaicAlignment, proxyOrthomosaicImage, saveMapPlacement, saveUtmZone };

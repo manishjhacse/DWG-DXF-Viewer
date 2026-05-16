@@ -25,15 +25,13 @@ export default function FileUploader({ onUploadComplete }) {
     filesArray.forEach((f) => {
       const ext = f.name.split(".").pop().toLowerCase();
       if (ext === "dwg" || ext === "dxf") cadFile = f;
-      else if (ext === "prj") prjFile = f;
     });
 
     if (!cadFile) { alert("Please include a .dwg or .dxf file."); return; }
 
-    setUploadState({ file: cadFile, prj: prjFile, progress: 0, status: "uploading" });
+    setUploadState({ file: cadFile, progress: 0, status: "uploading" });
     const formData = new FormData();
     formData.append("file", cadFile);
-    if (prjFile) formData.append("prj", prjFile);
 
     try {
       const res = await axios.post(`${API}/api/files/upload`, formData, {
@@ -61,9 +59,9 @@ export default function FileUploader({ onUploadComplete }) {
             <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
           </svg>
         </div>
-        <h3>Drop your DWG/DXF file (and optional .prj) here</h3>
+        <h3>Drop your DWG/DXF file here</h3>
         <p>or <span className="browse-link">browse</span> to upload · Max 100MB</p>
-        <input ref={fileInputRef} type="file" multiple accept=".dwg,.dxf,.prj" className="upload-input" onChange={(e) => e.target.files.length > 0 && handleFiles(Array.from(e.target.files))}/>
+        <input ref={fileInputRef} type="file" multiple accept=".dwg,.dxf" className="upload-input" onChange={(e) => e.target.files.length > 0 && handleFiles(Array.from(e.target.files))}/>
       </div>
       {uploadState && (
         <div className="upload-progress animate-fade-in">
@@ -74,7 +72,6 @@ export default function FileUploader({ onUploadComplete }) {
             <div className="upload-file-info">
               <div className="upload-file-name">
                 {uploadState.file.name}
-                {uploadState.prj && <span style={{fontSize:'10px', marginLeft:'8px', color:'var(--accent-color)'}}>+ {uploadState.prj.name}</span>}
               </div>
               <div className="upload-file-status">
                 {uploadState.status === "uploading" && `Uploading... ${uploadState.progress}%`}
