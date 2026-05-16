@@ -286,18 +286,27 @@ export default function LeafletMapViewer({
       colorPolygonBatches[color].push(latLngs);
     };
 
-    (parsedData.entities || []).forEach((entity) => {
-      if (visibleLayers && !visibleLayers.has(entity.layer)) return;
+    const processEntity = (entity, parentTransformFunc = null, colorOverride = null) => {
+      // Layer visibility check (only for top-level entities, nested take parent visibility implicitly)
+      if (!parentTransformFunc && visibleLayers && !visibleLayers.has(entity.layer)) return;
 
-      const color = getColorForEntity(entity, layerMap);
+      const color = colorOverride || getColorForEntity(entity, layerMap);
+
+      const transformLL = (x, y) => {
+        let pt = { x, y };
+        if (parentTransformFunc) {
+          pt = parentTransformFunc(x, y);
+        }
+        return toLL(pt.x, pt.y);
+      };
 
       try {
         switch (entity.type) {
           case "LINE":
             if (entity.startPoint && entity.endPoint) {
               addLineBatch(color, [
-                toLL(entity.startPoint.x, entity.startPoint.y),
-                toLL(entity.endPoint.x, entity.endPoint.y),
+                transformLL(entity.startPoint.x, entity.startPoint.y),
+                transformLL(entity.endPoint.x, entity.endPoint.y),
               ]);
             }
             break;
@@ -305,7 +314,7 @@ export default function LeafletMapViewer({
           case "LWPOLYLINE":
           case "POLYLINE":
             if (entity.vertices?.length > 1) {
-              const pts = entity.vertices.map((v) => toLL(v.x, v.y));
+              const pts = entity.vertices.map((v) => transformLL(v.x, v.y));
               if (entity.closed && pts.length > 0) pts.push(pts[0]);
               addLineBatch(color, pts);
             }
@@ -318,7 +327,7 @@ export default function LeafletMapViewer({
                 const angle = (i / 64) * Math.PI * 2;
                 const cx = entity.center.x + entity.radius * Math.cos(angle);
                 const cy = entity.center.y + entity.radius * Math.sin(angle);
-                circlePts.push(toLL(cx, cy));
+                circlePts.push(transformLL(cx, cy));
               }
               addLineBatch(color, circlePts);
             }
@@ -333,7 +342,7 @@ export default function LeafletMapViewer({
               if (sweep <= 0) sweep += Math.PI * 2;
               for (let i = 0; i <= 64; i++) {
                 const angle = startAngle + (i / 64) * sweep;
-                arcPts.push(toLL(
+                arcPts.push(transformLL(
                   entity.center.x + entity.radius * Math.cos(angle),
                   entity.center.y + entity.radius * Math.sin(angle)
                 ));
@@ -345,7 +354,7 @@ export default function LeafletMapViewer({
           case "TEXT":
           case "MTEXT":
             if (showLabels && entity.position) {
-              const pos = toLL(entity.position.x, entity.position.y);
+              const pos = transformLL(entity.position.x, entity.position.y);
               const text = (entity.text || "").replace(/\\P/g, "\n").replace(/\{[^}]+\}/g, "");
               if (text.trim()) {
                 L.marker(pos, {
@@ -361,7 +370,7 @@ export default function LeafletMapViewer({
 
           case "POINT":
             if (entity.position) {
-              L.circleMarker(toLL(entity.position.x, entity.position.y), {
+              L.circleMarker(transformLL(entity.position.x, entity.position.y), {
                 radius: 3,
                 color,
                 fillColor: color,
@@ -374,7 +383,7 @@ export default function LeafletMapViewer({
           case "SOLID":
           case "3DFACE":
             if (entity.points?.length >= 3) {
-              const polyPts = entity.points.map((p) => toLL(p.x, p.y));
+              const polyPts = entity.points.map((p) => transformLL(p.x, p.y));
               addPolygonBatch(color, polyPts);
             }
             break;
@@ -384,18 +393,48 @@ export default function LeafletMapViewer({
               entity.boundaries.forEach((b) =>
                 b.forEach((path) => {
                   if (path.length >= 3) {
-                    const pts = path.map((p) => toLL(p.x, p.y));
+                    const pts = path.map((p) => transformLL(p.x, p.y));
                     addPolygonBatch(color, pts);
                   }
                 })
               );
             }
             break;
+
+          case "INSERT":
+            if (entity.blockName && parsedData.blocks && parsedData.blocks[entity.blockName]) {
+              const block = parsedData.blocks[entity.blockName];
+              
+              // Create a closure that transforms local block coordinates into its parent's coordinate space
+              const blockTransformFunc = (localX, localY) => {
+                let dx = localX - (block.basePoint?.x || 0);
+                let dy = localY - (block.basePoint?.y || 0);
+                
+                dx *= (entity.scale?.x || 1);
+                dy *= (entity.scale?.y || 1);
+                
+                const rad = ((entity.rotation || 0) * Math.PI) / 180;
+                const rx = dx * Math.cos(rad) - dy * Math.sin(rad);
+                const ry = dx * Math.sin(rad) + dy * Math.cos(rad);
+                
+                const worldX = rx + (entity.position?.x || 0);
+                const worldY = ry + (entity.position?.y || 0);
+                
+                // If this block is nested inside another block, pass it up the chain!
+                return parentTransformFunc ? parentTransformFunc(worldX, worldY) : { x: worldX, y: worldY };
+              };
+
+              // Recursively process all entities inside this block
+              (block.entities || []).forEach(child => processEntity(child, blockTransformFunc, color));
+            }
+            break;
         }
       } catch (e) {
         // Skip unparseable entities
       }
-    });
+    };
+
+    (parsedData.entities || []).forEach(ent => processEntity(ent));
 
     // Render accumulated multi-polylines (massive performance optimization)
     Object.keys(colorLineBatches).forEach(color => {

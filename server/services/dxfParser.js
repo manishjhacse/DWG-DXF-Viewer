@@ -66,6 +66,38 @@ const parseDxfFile = (fileContent) => {
     console.log(`ℹ️ DXF skipped unhandled entity types: ${[...unknownTypes].join(', ')}`);
   }
 
+  const blocks = {};
+  const noopBounds = () => {}; // block-internal geometry shouldn't affect global map bounds
+
+  if (dxf.blocks) {
+    for (const [name, blockData] of Object.entries(dxf.blocks)) {
+      if (!name || name.startsWith('*') || name === 'Model_Space' || name === 'Paper_Space') continue;
+      
+      const blockEntities = blockData.entities || [];
+      if (blockEntities.length === 0) continue;
+
+      const convertedEntities = [];
+      blockEntities.forEach((ent) => {
+        try {
+          const parsed = parseEntity(ent, noopBounds);
+          if (parsed) convertedEntities.push(parsed);
+        } catch (e) { /* skip bad entity */ }
+      });
+
+      if (convertedEntities.length > 0) {
+        blocks[name] = {
+          name,
+          basePoint: { x: blockData.position?.x || blockData.x || 0, y: blockData.position?.y || blockData.y || 0 },
+          entities: convertedEntities,
+        };
+      }
+    }
+    const blockCount = Object.keys(blocks).length;
+    if (blockCount > 0) {
+      console.log(`✅ Extracted ${blockCount} block definitions from DXF`);
+    }
+  }
+
   const bounds = {
     minX: isFinite(minX) ? minX : 0,
     minY: isFinite(minY) ? minY : 0,
@@ -85,8 +117,10 @@ const parseDxfFile = (fileContent) => {
     entities,
     layers,
     bounds,
+    blocks,
     entityCount: entities.length,
     header: dxf.header || {},
+
     ...(geolocation && { geolocation }),
   };
 };
